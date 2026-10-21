@@ -11,6 +11,11 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+    /* 讓真實手機模式強制滿版，消除模擬器的圓角與邊框 */
+        body.is-mobile-view #panel-mobile { 
+            width: 100vw !important; height: 100dvh !important; 
+            border: none !important; border-radius: 0 !important; margin: 0 !important; 
+        }
         body { background-color: #0b0f19; color: #f8fafc; font-family: 'Inter', -apple-system, sans-serif; }
         .phone-portrait { width: 360px; height: 740px; }
         .phone-landscape { width: 720px; height: 390px; }
@@ -71,7 +76,7 @@
                 1: {
                     title: "CASE 1: T4N2 NPC",
                     folder: "./slices_case1",
-                    totalSlices: 53,
+                    totalSlices: 52,
                     oarImage: "./oar_case1.png",
                     radPlan: "B",                
                     swapBarsOnScreen: false,     // 已經為您設定為 false：左 A 右 B
@@ -139,7 +144,7 @@
                     <span id="mobile-case-title" class="text-[11px] font-bold text-orange-400 tracking-wide">CASE 1</span>
                 </div>
                 <span class="text-[10px] font-mono bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800">
-                    Slice: <strong id="slice-num" class="text-orange-400">27</strong>/<span id="total-slice-display">53</span>
+                    Slice: <strong id="slice-num" class="text-orange-400">27</strong>/<span id="total-slice-display">52</span>
                 </span>
             </div>
 
@@ -456,6 +461,26 @@
                     }
                     this.syncCloudState(data);
                 });
+                // 📱 針對真實手機環境的優化
+                if (viewMode === 'mobile') {
+                    document.body.classList.add('is-mobile-view'); // 觸發全螢幕 CSS
+                    document.body.style.padding = '0'; // 移除網頁預設留白
+                    
+                    // 🔄 自動偵測手機實體轉向
+                    const checkOrientation = () => {
+                        const isLandscape = window.innerWidth > window.innerHeight;
+                        // 如果實體是橫的，但系統判定是直的 (或相反)，就自動觸發轉向
+                        if ((isLandscape && this.state.isPortrait) || (!isLandscape && !this.state.isPortrait)) {
+                            this.toggleOrientation();
+                        }
+                    };
+                    // 監聽螢幕旋轉與尺寸改變事件
+                    window.addEventListener('resize', checkOrientation);
+                    window.addEventListener('orientationchange', () => setTimeout(checkOrientation, 100));
+                    
+                    // 初始載入時先檢查一次方向
+                    checkOrientation(); 
+                }
             },
 
             // 將雲端狀態套用到本地畫面
