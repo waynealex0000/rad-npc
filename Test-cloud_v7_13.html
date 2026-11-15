@@ -1,0 +1,1510 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPC VMAT vs RAD Interactive System — v7.0 Cloud Edition</title>
+    
+    <!-- 載入 Firebase SDK (相容舊版語法以確保單一 HTML 檔即插即用) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+    /* 讓真實手機模式強制滿版，動態適應手機瀏覽器可視高度 (--app-dvh)，消除圓角與邊框並確保底部投票按鈕 100% 可見 */
+        html.is-mobile-view, body.is-mobile-view {
+            width: 100vw !important;
+            height: var(--app-dvh, 100dvh) !important;
+            max-height: var(--app-dvh, 100dvh) !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+        }
+        body.is-mobile-view #main-layout-wrapper {
+            width: 100vw !important;
+            height: var(--app-dvh, 100dvh) !important;
+            max-height: var(--app-dvh, 100dvh) !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            gap: 0 !important;
+        }
+        body.is-mobile-view #panel-mobile { 
+            width: 100vw !important;
+            height: var(--app-dvh, 100dvh) !important;
+            max-height: var(--app-dvh, 100dvh) !important;
+            border: none !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px)) !important;
+            box-sizing: border-box !important;
+        }
+        body { background-color: #0b0f19; color: #f8fafc; font-family: 'Inter', -apple-system, sans-serif; }
+        .phone-portrait { width: 365px; height: min(740px, calc(100dvh - 76px)); max-height: calc(100dvh - 76px); }
+        .phone-landscape { width: min(740px, 96vw); height: min(420px, calc(100dvh - 76px)); max-height: calc(100dvh - 76px); }
+        .plan-img-viewport {
+            flex: 1 1 0%;
+            min-height: 60px;
+            position: relative;
+            background: #000;
+            overflow: hidden;
+            touch-action: none;
+            cursor: grab;
+        }
+        .plan-img-viewport:active {
+            cursor: grabbing;
+        }
+        .vertical-zoom-slider {
+            writing-mode: vertical-lr;
+            direction: rtl;
+            -webkit-appearance: slider-vertical;
+            appearance: slider-vertical;
+            width: 18px;
+            height: 100%;
+            min-height: 48px;
+            cursor: pointer;
+            background: transparent;
+        }
+        #zoom-wrapper {
+            position: absolute;
+            right: 5px;
+            top: 46%;
+            transform: translateY(-50%);
+            height: clamp(136px, 48%, 215px);
+            width: 28px;
+            z-index: 30;
+            background: rgba(2, 6, 23, 0.62);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            border: 1px solid rgba(56, 189, 248, 0.32);
+            border-radius: 9999px;
+            padding: 5px 2px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            gap: 2px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+            opacity: 0.82;
+            transition: opacity 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+        }
+        #zoom-wrapper:hover,
+        #zoom-wrapper:active,
+        #zoom-wrapper:focus-within {
+            opacity: 1;
+            background: rgba(2, 6, 23, 0.85);
+            border-color: rgba(56, 189, 248, 0.65);
+        }
+        .sync-zoom-img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            transform-origin: center center;
+            will-change: transform;
+            user-select: none;
+            -webkit-user-drag: none;
+            pointer-events: none;
+        }
+        
+        .vertical-slider { writing-mode: bt-lr; -webkit-appearance: slider-vertical; width: 24px; height: 100%; }
+        
+        .bar-transition { 
+            transition: height 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.4s ease, box-shadow 0.4s ease, background-image 0.5s ease; 
+        }
+        
+        .flip-container { perspective: 1200px; }
+        .flipper { transition: transform 0.7s cubic-bezier(0.4, 0.2, 0.2, 1); transform-style: preserve-3d; position: relative; width: 100%; height: 100%; }
+        .flip-reveal .flipper { transform: rotateY(180deg); }
+        .front, .back { backface-visibility: hidden; -webkit-backface-visibility: hidden; position: absolute; inset: 0; width: 100%; height: 100%; transition: opacity 0.35s ease; }
+        .front { z-index: 2; opacity: 1; }
+        .back { transform: rotateY(180deg); z-index: 1; opacity: 0.01; pointer-events: none; }
+        .flip-reveal .front { opacity: 0; pointer-events: none; z-index: 1; }
+        .flip-reveal .back { opacity: 1; pointer-events: auto; z-index: 3; }
+        #oar-goals-img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+
+        #image-lightbox { transition: opacity 0.25s ease; }
+        .lightbox-active { 
+            position: fixed; inset: 0; z-index: 9999; background-color: rgba(5, 8, 15, 0.94); 
+            display: flex; justify-content: center; align-items: center; padding: 1.5rem; cursor: zoom-out; backdrop-filter: blur(6px); 
+        }
+        .lightbox-active img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 0.5rem; box-shadow: 0 0 50px rgba(0,0,0,0.9); }
+
+        /* 讓舞台大螢幕模式 (?view=screen 或嵌入簡報 iframe) 100% 滿版無多餘外框，自動偵測高度防止底部裁切 */
+        html.is-screen-view, body.is-screen-view {
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+            height: 100dvh !important;
+            max-height: 100dvh !important;
+            overflow: hidden !important;
+        }
+        body.is-screen-view #main-layout-wrapper {
+            width: 100vw !important;
+            height: 100dvh !important;
+            max-height: 100dvh !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            gap: 0 !important;
+        }
+        body.is-screen-view #panel-screen {
+            width: 100vw !important;
+            height: 100dvh !important;
+            min-height: 0 !important;
+            max-height: 100dvh !important;
+            border: none !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            padding: 0.75rem 1.5rem !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+        }
+        /* 當嵌入於簡報 iframe 或視窗高度較矮時 (< 760px)，自動收緊間距與字級，保留最大空間給結論框 */
+        body.is-compact-screen #panel-screen {
+            padding: 0.5rem 1.25rem !important;
+        }
+        body.is-compact-screen #screen-header-normal {
+            margin-bottom: 0.35rem !important;
+        }
+        body.is-compact-screen #screen-title-h2 {
+            font-size: clamp(1.25rem, 2.2vw, 1.85rem) !important;
+            margin-top: 0.15rem !important;
+        }
+        body.is-compact-screen #reveal-banner {
+            margin-top: 0.35rem !important;
+            padding: 0.5rem 0.85rem !important;
+        }
+        body.is-compact-screen #banner-title {
+            font-size: clamp(0.92rem, 1.35vw, 1.15rem) !important;
+        }
+        body.is-compact-screen #banner-desc {
+            font-size: clamp(0.76rem, 1.08vw, 0.92rem) !important;
+            line-height: 1.32 !important;
+            margin-top: 0.15rem !important;
+        }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+        .shake-anim { animation: shake 0.4s ease-in-out; }
+    
+        /* 讓手機端 HUD 數據面板支援 Container Query 自適應字級與防爆版縮放 */
+        .hud-panel {
+            container-type: inline-size;
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+            overflow: hidden;
+        }
+        .hud-inner {
+            width: 100%;
+            display: flex;
+            align-items: stretch;
+            gap: clamp(3px, 1.2cqw, 8px);
+            transform-origin: left center;
+        }
+        .hud-col-target {
+            width: 34%;
+            flex: 0 0 34%;
+            border-right: 1px solid rgba(51, 65, 85, 0.65);
+            padding-right: clamp(2px, 0.9cqw, 6px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-width: 0;
+        }
+        .hud-col-oar {
+            width: 66%;
+            flex: 1 1 66%;
+            padding-left: clamp(1px, 0.5cqw, 4px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-width: 0;
+        }
+        .hud-title {
+            font-size: clamp(7.5px, 2.35cqw, 11px);
+            line-height: 1.15;
+            font-weight: 800;
+            letter-spacing: -0.01em;
+            margin-bottom: 2px;
+            padding-bottom: 1px;
+            border-bottom: 1px solid rgba(30, 41, 59, 0.9);
+            white-space: nowrap;
+        }
+        .hud-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            column-gap: clamp(2px, 1cqw, 8px);
+            row-gap: 1.5px;
+            font-size: clamp(8px, 2.65cqw, 12.5px);
+            line-height: 1.22;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.025em;
+            white-space: nowrap;
+        }
+        .hud-cell {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: clip;
+            display: flex;
+            align-items: baseline;
+        }
+        .hud-tag {
+            font-size: 0.84em;
+            letter-spacing: -0.04em;
+            opacity: 0.85;
+        }
+        .hud-val {
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-weight: 700;
+            margin-left: 1.5px;
+        }
+        .hud-unit {
+            font-size: 0.82em;
+            opacity: 0.78;
+            margin-left: 0.5px;
+        }
+
+    </style>
+</head>
+<body class="min-h-screen p-3 md:p-5 flex flex-col gap-4 select-none">
+
+    <!-- =========================================================================
+         🛠️ 第一部分：使用者設定與 Firebase 金鑰
+         ========================================================================= -->
+    <script>
+        // 🔑 您的專屬 Firebase 金鑰設定
+        const firebaseConfig = {
+            apiKey: "AIzaSyDTpuOFLEPAUik6C79haeCLBg76mEDmmAs",
+            authDomain: "rad-npc.firebaseapp.com",
+            databaseURL: "https://rad-npc-default-rtdb.firebaseio.com",
+            projectId: "rad-npc",
+            storageBucket: "rad-npc.firebasestorage.app",
+            messagingSenderId: "110640580386",
+            appId: "1:110640580386:web:f255575337c3449275077b"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const dbRef = firebase.database().ref('astro_live_session');
+
+        const APP_CONFIG = {
+            USE_REAL_IMAGES: true,
+
+            // 🔗 觀眾投票入場連結與縮網址設定 (QR Code 直接編碼完整網址確保零延遲，畫面顯示好記的縮網址供手打)
+            MOBILE_ENTRY_URL: "https://waynealex0000.github.io/rad-npc/Test-cloud.html?view=mobile",
+            MOBILE_SHORT_URL: "https://tinyurl.com/NPC-RAD-VOTE",
+
+            HANDOUT_INFO: {
+                shortUrl: "https://tinyurl.com/NPC-RAD-ASTRO",
+                speakerName: "Dr. Yung-Jen Cheng (鄭詠仁 醫師)",
+                affiliation: "Dept. of Radiation Oncology, NCKUH",
+                posterPdfUrl: "https://tinyurl.com/NPC-RAD-ASTRO" 
+            },
+
+            CASES: {
+                1: {
+                    title: "CASE 1: T3N0 NPC",
+                    folder: "./slices_case1",
+                    totalSlices: 52,
+                    oarImage: "./oar_case1.png",
+                    radPlan: "B",                // Plan A = VMAT, Plan B = RAD 5 (0007)
+                    swapBarsOnScreen: false,     // 左 A 右 B
+                    radTitle: "VMATp (RAD 5)",
+                    radSub: "5-STAMPs Dynamic Collimator",
+                    vmatTitle: "Standard VMAT",
+                    vmatSub: "Conventional 2-Arc",
+                    keySlices: { brainstem: 6, parotid: 16, pcm: 29, cord: 47 },
+                    hud: {
+                        rad:  { d99: "69.5", d1: "75.0", v107: "1.0", v95: "99.9", ci: "1.07", hi: "0.08", bs: "53.1", cord: "36.5", rparo: "23.5", lparo: "23.2", smpcm: "51.6", ipcm: "18.8" },
+                        vmat: { d99: "69.5", d1: "75.3", v107: "2.4", v95: "99.8", ci: "1.02", hi: "0.08", bs: "55.9", cord: "43.2", rparo: "24.1", lparo: "24.5", smpcm: "53.7", ipcm: "20.9" }
+                    }
+                },
+                2: {
+                    title: "CASE 2: T3N1 NPC",
+                    folder: "./slices_case2",
+                    totalSlices: 32,
+                    oarImage: "./oar_case2.png",
+                    radPlan: "A",                // Plan A = RAD 1, Plan B = VMAT (0013)
+                    swapBarsOnScreen: false,     // 左 A 右 B
+                    radTitle: "VMATp (RAD 1)",
+                    radSub: "1-STAMP Dynamic Collimator",
+                    vmatTitle: "Standard VMAT",
+                    vmatSub: "Conventional 2-Arc",
+                    keySlices: { brainstem: 6, parotid: 9, pcm: 18, cord: 29 },
+                    hud: {
+                        rad:  { d99: "70.1", d1: "75.1", v107: "1.2", v95: "99.9", ci: "1.09", hi: "0.07", bs: "63.5", cord: "36.7", rparo: "27.8", lparo: "29.3", smpcm: "64.7", ipcm: "25.0" },
+                        vmat: { d99: "69.5", d1: "75.4", v107: "3.2", v95: "99.8", ci: "1.09", hi: "0.08", bs: "65.3", cord: "39.0", rparo: "28.2", lparo: "29.6", smpcm: "65.8", ipcm: "24.8" }
+                    }
+                }
+            }
+        };
+
+        // 👁️ 網址參數與內嵌自動偵測路由邏輯 (URL & Iframe Auto-Detection Routing)：
+        // 1. 若嵌入於主簡報 iframe 中 (window.self !== window.top) 且未指定 ?view=，自動進入 'screen' 舞台大螢幕模式
+        // 2. 若在獨立視窗開啟且為手機裝置，自動進入 'mobile' 觀眾投票模式
+        const urlParams = new URLSearchParams(window.location.search);
+        const rawView = urlParams.get('view');
+        const isEmbeddedIframe = (window.self !== window.top);
+        const isMobileDevice = !isEmbeddedIframe && (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 860);
+        const viewMode = rawView || (isEmbeddedIframe ? 'screen' : (isMobileDevice ? 'mobile' : 'all')); // 支援: mobile, screen, remote, all
+    </script>
+
+    <!-- 頂部狀態列 -->
+    <header id="app-header" class="flex flex-wrap justify-between items-center bg-slate-900/90 border border-slate-800 px-4 py-2 rounded-xl shrink-0">
+        <div class="flex items-center gap-3">
+            <span class="bg-orange-500/20 text-orange-400 border border-orange-500/30 text-[10px] font-bold px-2.5 py-0.5 rounded-md">Live Review (Cloud Sync)</span>
+            <h1 class="text-sm md:text-base font-bold text-slate-200">Locally Advanced NPC Blind Review System</h1>
+        </div>
+        <button onclick="App.toggleOrientation()" id="btn-orientation" class="bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg shadow transition">
+            🔄 模擬手機轉向
+        </button>
+    </header>
+
+    <!-- 主畫面三欄容器 -->
+    <div id="main-layout-wrapper" class="flex-1 flex flex-col xl:flex-row gap-5 items-center xl:items-stretch justify-center min-h-0">
+
+        <!-- ------------------------------------------
+             1. 聽眾手機端 (Mobile View)
+             ------------------------------------------ -->
+        <div id="panel-mobile" class="phone-portrait bg-slate-950 border-[6px] border-slate-800 rounded-[2.2rem] p-2.5 flex flex-col justify-between relative shadow-2xl transition-all duration-300 shrink-0 overflow-hidden">
+            
+            <div id="toast-warning" class="hidden absolute top-14 left-4 right-4 bg-rose-600/95 border border-rose-400 text-white text-xs font-bold px-3 py-2.5 rounded-xl shadow-2xl z-50 flex items-center justify-center gap-2 backdrop-blur-md">
+                <span>⚠️ 請先點擊上方任一計畫 (Plan A 或 B)！</span>
+            </div>
+
+            <div class="flex justify-between items-center px-2 pb-1.5 border-b border-slate-800/80 shrink-0">
+                <div class="flex items-center gap-2">
+                    <span id="mobile-live-indicator" class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    <span id="mobile-case-title" class="text-[11px] font-bold text-orange-400 tracking-wide">CASE 1</span>
+                </div>
+                <span class="text-[10px] font-mono bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800">
+                    Slice: <strong id="slice-num" class="text-orange-400">27</strong>/<span id="total-slice-display">52</span>
+                </span>
+            </div>
+
+            <!-- [手機模式 A] 盲測看片與投票 -->
+            <div id="mobile-stage-voting" class="flex-1 min-h-0 flex flex-col justify-between overflow-hidden py-1 gap-1">
+                
+                <div class="flex justify-between items-center gap-1 shrink-0">
+                    <div class="grid grid-cols-4 gap-1 flex-1">
+                        <button onclick="App.jumpToOrgan('brainstem')" class="bg-slate-900 hover:bg-slate-800 text-[10px] py-1 rounded border border-slate-700 text-slate-300 font-medium">🎯 B-Stem</button>
+                        <button onclick="App.jumpToOrgan('parotid')" class="bg-slate-900 hover:bg-slate-800 text-[10px] py-1 rounded border border-slate-700 text-slate-300 font-medium">🎯 Parotid</button>
+                        <button onclick="App.jumpToOrgan('pcm')" class="bg-slate-900 hover:bg-slate-800 text-[10px] py-1 rounded border border-slate-700 text-slate-300 font-medium">🎯 PCM</button>
+                        <button onclick="App.jumpToOrgan('cord')" class="bg-slate-900 hover:bg-slate-800 text-[10px] py-1 rounded border border-slate-700 text-slate-300 font-medium">🎯 Cord</button>
+                    </div>
+                    <button id="btn-toggle-hud" onclick="App.toggleHUD()" class="bg-emerald-800/80 hover:bg-emerald-700 text-emerald-200 text-[10px] px-2 py-1 rounded border border-emerald-500/50 font-semibold shrink-0">
+                        📊 顯示數據
+                    </button>
+                </div>
+
+                <div id="viewer-container" class="flex-1 min-h-0 flex flex-col gap-1 overflow-hidden">
+                    <!-- 上方主看片區：左側雙計畫卡片 + 右側縱向同步縮放拉桿 -->
+                    <div id="plans-and-zoom-row" class="flex-1 min-h-0 flex flex-row overflow-hidden relative">
+                        <div id="plans-wrapper" class="flex-1 min-w-0 min-h-0 flex flex-col gap-1 overflow-hidden">
+                            <!-- PLAN A 卡片 -->
+                            <div onclick="App.handleCardClick('A', event)" id="card-plan-a" class="flex-1 min-h-0 bg-slate-900 rounded-xl border-2 border-slate-800 relative overflow-hidden flex flex-col justify-between cursor-pointer transition-colors">
+                                <div class="flex justify-between items-center px-2 py-0.5 bg-slate-950/85 z-10 shrink-0">
+                                    <span class="text-[10px] font-black text-white tracking-wider">PLAN A</span>
+                                    <span id="badge-select-a" class="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-semibold">點擊選擇</span>
+                                </div>
+                                <div class="plan-img-viewport flex items-center justify-center" data-plan="A">
+                                    <img id="img-plan-a" src="" class="sync-zoom-img hidden" alt="Plan A">
+                                    <div id="mock-img-a" class="text-slate-600 text-[11px] font-mono pointer-events-none">Plan A Slice Preview</div>
+                                    <div class="zoom-pan-hint absolute bottom-1 left-1.5 bg-slate-950/75 text-cyan-300/90 border border-cyan-500/30 text-[8px] font-mono px-1.5 py-0.5 rounded pointer-events-none z-10">✋ 單指拖曳同步平移</div>
+                                </div>
+                                <div class="hud-panel bg-slate-950/95 border-t border-slate-800/80 px-1.5 py-0.5 flex z-10 shrink-0" style="display: none;">
+                                    <div class="hud-inner">
+                                        <div class="hud-col-target">
+                                            <div class="hud-title text-slate-400">TARGET (PTV)</div>
+                                            <div class="hud-grid">
+                                                <div class="hud-cell text-slate-400"><span>D99:</span><span id="a-d99" class="hud-val text-slate-100">-</span><span class="hud-unit text-slate-400">Gy</span></div>
+                                                <div class="hud-cell text-slate-400"><span>D1:</span><span id="a-d1" class="hud-val text-slate-100">-</span><span class="hud-unit text-slate-400">Gy</span></div>
+                                                <div class="hud-cell text-slate-400"><span>V107:</span><span id="a-v107" class="hud-val text-slate-100">-</span><span class="hud-unit text-slate-400">%</span></div>
+                                                <div class="hud-cell text-slate-400"><span>V95:</span><span id="a-v95" class="hud-val text-slate-100">-</span><span class="hud-unit text-slate-400">%</span></div>
+                                                <div class="hud-cell text-slate-400"><span>CI:</span><span id="a-ci" class="hud-val text-slate-100">-</span></div>
+                                                <div class="hud-cell text-slate-400"><span>HI:</span><span id="a-hi" class="hud-val text-slate-100">-</span></div>
+                                            </div>
+                                        </div>
+                                        <div class="hud-col-oar">
+                                            <div class="hud-title text-cyan-400/90">OARs (Gy)</div>
+                                            <div class="hud-grid">
+                                                <div class="hud-cell text-cyan-500/90"><span>Stem<span class="hud-tag">[max]</span>:</span><span id="a-bs" class="hud-val text-cyan-100">-</span></div>
+                                                <div class="hud-cell text-cyan-500/90"><span>Cord<span class="hud-tag">[max]</span>:</span><span id="a-cord" class="hud-val text-cyan-100">-</span></div>
+                                                <div class="hud-cell text-cyan-500/90"><span>R't Paro<span class="hud-tag">[mean]</span>:</span><span id="a-rparo" class="hud-val text-cyan-100">-</span></div>
+                                                <div class="hud-cell text-cyan-500/90"><span>L't Paro<span class="hud-tag">[mean]</span>:</span><span id="a-lparo" class="hud-val text-cyan-100">-</span></div>
+                                                <div class="hud-cell text-cyan-500/90"><span>SM-PCM<span class="hud-tag">[mean]</span>:</span><span id="a-smpcm" class="hud-val text-cyan-100">-</span></div>
+                                                <div class="hud-cell text-cyan-500/90"><span>I-PCM<span class="hud-tag">[mean]</span>:</span><span id="a-ipcm" class="hud-val text-cyan-100">-</span></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- PLAN B 卡片 -->
+                            <div onclick="App.handleCardClick('B', event)" id="card-plan-b" class="flex-1 min-h-0 bg-slate-900 rounded-xl border-2 border-slate-800 relative overflow-hidden flex flex-col justify-between cursor-pointer transition-colors">
+                                <div class="flex justify-between items-center px-2 py-0.5 bg-slate-950/85 z-10 shrink-0">
+                                    <span class="text-[10px] font-black text-white tracking-wider">PLAN B</span>
+                                    <span id="badge-select-b" class="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-semibold">點擊選擇</span>
+                                </div>
+                                <div class="plan-img-viewport flex items-center justify-center" data-plan="B">
+                                    <img id="img-plan-b" src="" class="sync-zoom-img hidden" alt="Plan B">
+                                    <div id="mock-img-b" class="text-slate-600 text-[11px] font-mono pointer-events-none">Plan B Slice Preview</div>
+                                    <div class="zoom-pan-hint absolute bottom-1 left-1.5 bg-slate-950/75 text-cyan-300/90 border border-cyan-500/30 text-[8px] font-mono px-1.5 py-0.5 rounded pointer-events-none z-10">✋ 單指拖曳同步平移</div>
+                                </div>
+                                <div class="hud-panel bg-slate-950/95 border-t border-slate-800/80 px-1.5 py-0.5 flex z-10 shrink-0" style="display: none;">
+                                    <div class="hud-inner">
+                                        <div class="hud-col-target">
+                                            <div class="hud-title text-slate-400">TARGET (PTV)</div>
+                                            <div class="hud-grid">
+                                                <div class="hud-cell text-slate-400"><span>D99:</span><span id="b-d99" class="hud-val text-slate-100">-</span><span class="hud-unit text-slate-400">Gy</span></div>
+                                                <div class="hud-cell text-slate-400"><span>D1:</span><span id="b-d1" class="hud-val text-slate-100">-</span><span class="hud-unit text-slate-400">Gy</span></div>
+                                                <div class="hud-cell text-slate-400"><span>V107:</span><span id="b-v107" class="hud-val text-slate-100">-</span><span class="hud-unit text-slate-400">%</span></div>
+                                                <div class="hud-cell text-slate-400"><span>V95:</span><span id="b-v95" class="hud-val text-slate-100">-</span><span class="hud-unit text-slate-400">%</span></div>
+                                                <div class="hud-cell text-slate-400"><span>CI:</span><span id="b-ci" class="hud-val text-slate-100">-</span></div>
+                                                <div class="hud-cell text-slate-400"><span>HI:</span><span id="b-hi" class="hud-val text-slate-100">-</span></div>
+                                            </div>
+                                        </div>
+                                        <div class="hud-col-oar">
+                                            <div class="hud-title text-cyan-400/90">OARs (Gy)</div>
+                                            <div class="hud-grid">
+                                                <div class="hud-cell text-cyan-500/90"><span>Stem<span class="hud-tag">[max]</span>:</span><span id="b-bs" class="hud-val text-cyan-100">-</span></div>
+                                                <div class="hud-cell text-cyan-500/90"><span>Cord<span class="hud-tag">[max]</span>:</span><span id="b-cord" class="hud-val text-cyan-100">-</span></div>
+                                                <div class="hud-cell text-cyan-500/90"><span>R't Paro<span class="hud-tag">[mean]</span>:</span><span id="b-rparo" class="hud-val text-cyan-100">-</span></div>
+                                                <div class="hud-cell text-cyan-500/90"><span>L't Paro<span class="hud-tag">[mean]</span>:</span><span id="b-lparo" class="hud-val text-cyan-100">-</span></div>
+                                                <div class="hud-cell text-cyan-500/90"><span>SM-PCM<span class="hud-tag">[mean]</span>:</span><span id="b-smpcm" class="hud-val text-cyan-100">-</span></div>
+                                                <div class="hud-cell text-cyan-500/90"><span>I-PCM<span class="hud-tag">[mean]</span>:</span><span id="b-ipcm" class="hud-val text-cyan-100">-</span></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 右側懸浮式縱向同步縮放拉桿 (直接浮於圖片右側黑底區，0 佔用圖片與數據空間) -->
+                        <div id="zoom-wrapper" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()">
+                            <button type="button" onclick="App.stepZoom(0.25)" class="bg-slate-800/80 hover:bg-slate-700 text-cyan-200 text-[9px] font-bold w-5 h-5 rounded-full flex items-center justify-center border border-slate-600/70 shrink-0 leading-none" title="同步放大">➕</button>
+                            <div class="flex-1 min-h-0 w-full flex items-center justify-center py-0.5">
+                                <input id="zoom-slider" type="range" min="1" max="3.5" step="0.05" value="1" oninput="App.syncZoom(this.value)" class="vertical-zoom-slider accent-cyan-400 cursor-pointer" title="上下拉動同步縮放兩張圖">
+                            </div>
+                            <button type="button" onclick="App.stepZoom(-0.25)" class="bg-slate-800/80 hover:bg-slate-700 text-cyan-200 text-[9px] font-bold w-5 h-5 rounded-full flex items-center justify-center border border-slate-600/70 shrink-0 leading-none" title="同步縮小">➖</button>
+                            <button type="button" id="zoom-readout-btn" onclick="App.resetZoom()" class="bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-cyan-500/40 text-[7.5px] font-mono font-bold px-0.5 py-0.5 rounded-full shrink-0 w-6 text-center leading-tight" title="點擊重置縮放與平移 (回到置中 100%)">1x</button>
+                        </div>
+                    </div>
+
+                    <!-- 下方切面滑桿控制列 (固定高度不壓縮) -->
+                    <div id="controls-dock" class="flex flex-col gap-1 shrink-0">
+                        <div id="slider-wrapper" class="bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-800 flex items-center gap-2 shrink-0">
+                            <span id="slider-label" class="text-[10px] text-slate-300 font-semibold whitespace-nowrap">↕ 切面</span>
+                            <input id="slice-slider" type="range" min="1" max="52" value="26" oninput="App.syncSlice(this.value)" class="w-full h-1.5 accent-orange-500 cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-0.5 shrink-0 z-20">
+                    <button id="btn-submit-vote" onclick="App.confirmVote()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold py-2 rounded-xl text-xs transition-all shadow-lg cursor-pointer">
+                        確認送出投票 (請先選擇上方計畫)
+                    </button>
+                </div>
+            </div>
+            
+            <!-- [手機模式 B] Digital Handout 畫面 -->
+            <div id="mobile-stage-handout" class="hidden flex-1 flex-col justify-between py-2 overflow-y-auto space-y-2 text-left px-1">
+                <div class="bg-gradient-to-r from-orange-500/20 to-amber-500/10 border border-orange-500/30 p-3 rounded-xl">
+                    <h4 class="text-xs font-bold text-orange-400">📄 ASTRO Digital Handout</h4>
+                    <p class="text-[10px] text-slate-300 mt-0.5">Single-STAMP VMATp (RAD) in Locally Advanced NPC</p>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 text-[10px] space-y-1.5">
+                    <div class="font-bold text-slate-200 border-b border-slate-800 pb-1">Key Dosimetric Takeaways (n=20)</div>
+                    <div class="flex justify-between"><span>Brainstem Dmax:</span><span class="text-emerald-400 font-bold">-4.8% (56.75 vs 59.61 Gy)</span></div>
+                    <div class="flex justify-between"><span>Spinal Cord Dmax:</span><span class="text-emerald-400 font-bold">-15.7% (38.74 vs 45.68 Gy)</span></div>
+                    <div class="flex justify-between"><span>Inf. PCM Dmean:</span><span class="text-emerald-400 font-bold">-8.2% (24.67 vs 26.87 Gy)</span></div>
+                    <div class="flex justify-between"><span>Optimization Time:</span><span class="text-orange-400 font-bold">-51.5% (91.1s vs 187.9s)</span></div>
+                </div>
+                <a id="btn-download-poster" href="https://tinyurl.com/NPC-RAD-ASTRO" target="_blank" rel="noopener noreferrer" onclick="window.open(APP_CONFIG.HANDOUT_INFO.posterPdfUrl, '_blank'); return false;" class="block w-full text-center bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition">
+                    📥 下載完整研究電子海報 (PDF)
+                </a>
+                <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 text-[10px]">
+                    <p id="handout-speaker" class="font-bold text-slate-200">Dr. Yung-Jen Cheng</p>
+                    <p id="handout-affil" class="text-slate-400 text-[9px] mt-0.5">Dept. of Radiation Oncology, NCKUH</p>
+                </div>
+            </div>
+        </div>
+
+                <!-- ------------------------------------------
+             2. 舞台大螢幕端 (Projector Stage View — 300人大型會場字體放大版)
+             ------------------------------------------ -->
+        <div id="panel-screen" class="flex-1 bg-slate-900 border border-slate-800 rounded-3xl p-4 md:p-6 flex flex-col relative shadow-2xl min-h-0 overflow-hidden">
+            
+            <!-- 大螢幕標題 (一般盲測模式 — 自適應高度與字體) -->
+            <div id="screen-header-normal" class="flex justify-between items-center mb-2 shrink-0 gap-3">
+                <div class="min-w-0">
+                    <span id="screen-case-badge" class="text-xs md:text-sm font-extrabold uppercase tracking-widest text-orange-400 bg-orange-500/15 px-3 py-0.5 rounded-full border border-orange-500/30 inline-block">Live Blind Review — Case 1</span>
+                    <h2 id="screen-title-h2" class="text-xl md:text-3xl lg:text-4xl font-black mt-1 text-white tracking-tight leading-tight whitespace-nowrap">Which Plan Would You Approve?</h2>
+                </div>
+                <div class="flex items-center gap-2.5 shrink-0">
+                    <!-- 右上角常駐觀眾入場投票 QR Code 縮圖 (點擊可滿版放大至全畫面中央) -->
+                    <div onclick="App.remoteToggleEntryQR()" class="bg-slate-950 hover:bg-slate-900 px-2.5 py-1.5 rounded-2xl border-2 border-cyan-500/50 flex items-center gap-2.5 cursor-pointer transition shadow-lg group" title="點擊全畫面放大/收起觀眾投票 QR Code">
+                        <div class="bg-white p-1 rounded-xl shrink-0">
+                            <img id="screen-corner-qr-img" src="data:image/png;base64,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przjP//5j3V4PlbHKKuXNRYVkhQgeSU5LQTVXUAXgtWLM9pdnPD6668bve1H9/rtXmsC07X6VllllXZFk9v/73//2zqmBx54wLpO9wqLLbZY9028RiCYAMmreGp6yCmgVxNq4tJbl2RpSi+FP+qoo7IU7VJGTyHqH/U11lijy/bUX7gkL711S95x+fiic94YqF9fAZJXfee+NCPXU4WvvPKKVbxnnHGGsb2AQzuYY445jH6upn3q6zI8bE8b6mlXHzeT9LEyfRl8iTFNAZJXmvNCVNMFdt99d/Poo49Of2X3Q++nlXXljc4t9+7d29xyyy1mr7326rw52eeZjrw6RX/99dcb18vrOzVj1l577c4veY5AUAGSV1BuOrMR0KMn11t+dPSz7777mhtuuKHjpdVPTXw77bSTVZ0YhW2T1wknnJA7zNVXXz13GzSAQB4BklcePeoWJnDHHXcYl8+tugf03//+1+ywww7OCUyXndIrGLu3m9JrHWPWeI4//njz2muvZS3espzedbrlTnYg0FzA69ZeItkXQhSZWbb7wpdZXovMrC+S7bnX0fbQmEi2eETylcvi1L1MD2F73SXSfmyTJk3y2mezxnTlhz333LPZLudtO+64o7nsssuc6l944YXm2GOPdaobolLWz7zGjx9vTjnlFC8hbb311l7aqVoj3X93i3ot0v53VaRrGRdrka5tiLR/7dKPS51eLpWog0CRAnrE9fbbb3vtQv+I3H///c5tnnrqqWa55ZZzrl9kxaynDY8++mgvYehngoMHD/bSFo0g4CpA8nKVq3m9ooavCUaPdHy3r5/R6CX0ru3qyh3PPvusa/VC62W9+OLOO+/0EgdHXV4YaSSnAMkrJyDV/Qrss88+fhv8orUll1yycfXgF0+d/jdq1CgzdOhQp7ohKulRZbt+sn5Hrl07ul8vgtGfPBCIKUDyiqlP310Ezj77bPP3v/+9y7a8LxZddFEzduxY47p24VVXXWW22mqrvGEUWj/L2oZ5b3/SMQA9dbrhhht2vIz8k+7rLEDyqvPsJzR2PfV12mmneY1IV43XFTNc1+C74oorzG677eY1piIay/KZl35O5aPvQw891EcztIFAbgGSV25CGvAhMGLECONjpfOOWAYMGGAefvhhowmsY5vNT/18aI899rCpEq2sJv4QnS+88MJm7733DtEVfSDQViCV5NU2UApUW8DXJdyqpH9kb7vtNrPQQgvpS+vHyJEjja6laF0xUoUsR14aWt5Th7piyRxzzKFN8UAgugDJK/oUEIAuVzRx4kQvEPrH9dZbb3W+weTNN99sttlmGy+xhGoka/Ky+TJz99j1s8Pvf//73TfzGoFoAiSvaPR03CFw0003dTzN/fOSSy4xq622mlM7o0ePNttuu61T3ZiVsiavOeec0znM008/3bkuFREoQoDkVYQqbWYW0NUh9Egpc4UeCupnVLvuumsPJVrveuaZZ0wZ1jFsNgI1bLa9+7bZZ5+9+6ZMrzfffHMzbNiwTGUphEAoAZJXKGn6aSpw3333mQ8//LDpPpuNffv2Neeff75NlRlln376aTN48GAzZcqUGdvK9CRr8pptttmshzXXXHOZ3/72t9b1qOAsQMWMAiSvjFAUK0bA11HXueeea+aee27rICdMmGD0e0vvvPOOdd1UKmRNXvp5oG3Mv/vd75w/P7Tti/II2AiQvGy0KOtdwEfy6t+/v3E5Xag3uCx74tIJyXohhu2Rl64xufPOO2sXPBBITqCXLi3j8khuJDkDcjFoV6fZfpH2qzKLdC2Tc2jJVtejHf2sKW+Ahx12mHUTeqpyyJAh5q233rKum1qFLCtsaMw2yWvjjTc2v/jFL7Racg+Rrr8fIsW8DjVwEfv4m/1tabfNZTzt2oy5nyMvlxmljheBcePG5W5HRMwuu+xi3Y7eIkVPGVpXTLBC1iOvrKcN9UhWv76Q93thCVIRUoUESF4VmsyyDeWJJ57IHfJ6661n9GINm4Z01Xq92aVNnZTL9vyZ18zIsxx56Re8//znP5v55ptvZkWeIZCgAMkrwUmpS0g+FuHVy7htvD766CNz5JFH2lTxWtY20WbpPGvyanep/IILLmjuuusus8QSS2TpljIIRBUgeUXlr3fnr7/+em6AjTbayKqN3//+99EuidcvUD///PNm+eWXt4q5XeGsyetLX/pSy6a+/vWvm0ceecR7bC07ZEetBIoYLMmrCFXazCTgYyHeNddcM1NfHYVifGdJb8eiN9nUe5XNP//85t57721cnt8RU96fWT/zanXktcACCxg9VdivX7+8oVAfgWACJK9g1HTUXSDvl4L1aKF7mz29njp1qnnqqad6KuJ937zzztu4EeY666wzo21NYHp6br/99puxLc+TrMtDNUteeqpQvyi+9NJL5wmBuggEFyB5BScveYcew//kk09ytWZ7ny4fVzfaBKxJ6u677zarr75602oXX3yx2X///Zvus9molytnKd/9tGGfPn2MxrfMMstkqU4ZBJISIHklNR31CmbatGm5BqxLF9k0MHnyZJviucrqah96qnCVVVbpsZ2LLrrI5P0isMtpw3nmmadxqnCFFVboMT52IpCqAMkr1ZkhrrYCItK2TOcCRVzp17n9zs/1e1LLLrts500tn19zzTVm7733brm/3Y6syavjyOsrX/mK0a8KuK6+3y6eAPvpAgFD8uJNEE0g6+muVgHqKhmt9jXbbnuasVkbWbbdeOONRlfvyFK2o4xeBXnooYd2vLT6mfVqQ/3MS49WNXHZXuhiFRCFEQggQPIKgEwXzQU6jgSa722/9YMPPmhfqFMJvbNy0Z/vXHfddWa77bbr1Gv2p+ecc4459dRTs1eYXjJr8tJThZdffrnRL3ZPr8oPBEorED15lVaOwHML9O7dO1cbL7zwgnV9XYjXulLGCtdee63RZacyFm9a7NhjjzXnnXde032tNmY9bfjrX//abL/99q2aYTsCpRLoJSJGxP5RqlEWFKwIbnlo9UggT3294OMf//iHVROup+Z66kQ/Q7rpppu83czyoIMOMnolYk99dt6X9circx2etxfQ09q2j/at+ikhYv+3R8S+jku0Ivb9iNjX4cjLZXao40VAL9XO29DDDz9s1cRyyy1n9tlnn2518r28+uqrzbbbbpuvkW619Ttgl156abetzV/mPYJt3ipbEUhbgOSV9vxUOrqllloq9/j0C7a2jZx55plmscUWs63WtLwecW2zzTZN9+XduNdeexn9DK1dO62+R9auHvsRKLMAyavMs1fy2PXWG3mHMHLkSOsm9IgvS1Jo17CuTu/7iKt7n/oZ2j333NPyLtGauIYOHdq9Gq9LKEDIdgIkLzsvSnsU0FN4eZt76aWXzAMPPGDdzNprr91YiFaXR7KtrJ/VaUI54IADbKs6lV9//fUbq71399pzzz0bS085NUolBEouQPIq+QSWOfwNNtjA+Ljhoe3VeR1ma6yxhhk/frzJmoQ0aR1yyCFG70OmCaWjnRA/NVa967Qmav2cT2/tctlllxld9DdE//SBQGoCJK8iZoQ2MwnoEkorrbRSprI9FbrqqqvMK6+80lORlvsWXXRRo6f/Xn75ZXPuuec2lmoaMGCA6ViNQxes3WqrrYxeBq/fK9MySy65ZMv22u149dVXzdNPP92uWMv9esQ4cODAlqcRW1ZkBwIVEyB5VWxCyzacTTbZxEvIJ510Uq52dIV6ParSpZr0aOzdd981epm03jBTP1fbaaedcrWvlfVeXptuuqlZccUVjUUHircAABAASURBVB416TYeCCDgJkDycnOjlieBrbfe2ktLurxS6FXjbQLXU356W5TnnnuuUW3vvfc2miwbL4r5h1YRqLQAyavS05v+4NZdd12jtw7xEekee+zhoxnvbbz44otmo402Mu+9916XtvWzOh+3ROnSKC8QqIkAyasmE53yMHfddVcv4elnSQcffLCXtnw18vbbbxs9Nao/m7Wpd3b2cUqyWdtsQyC6QIEBkLwKxKXpbAI+E875559vvTZgtijtS+mRliauiRMn9lhZb5+iF4VMnTq1x3LsRACBmQIkr5kWPIskoN9fGjx4sLfe9bMkXbLJW4MODemai7p6+1NPPZWp9qhRo4zepsT1qslMnVAIgQoJ9NIrqlweFTJwHkrKbiL2C132DFHs3mOOOcZrB8OGDTN5r0B0DUhPX+rl7BMmTLBqQhPd8ssvb04//XSrelUoPGnSpMwLhLv83rnUqYJr5zFUzYAjr86zy/NoAnrzxtVWW81r/8OHDzc77LCDmTJlitd2e2pMvweml8K/+eabPRVrue/jjz82Rx99tNHvl/30pz81eql+y8LsQKDGAiSvGk9+akMv4kjphhtuMHoU5LKAr43PO++8Y3SNQV+3XNErFE844QTzzW9+03zta19r3ODytddeswmpkmUZFAIdAiSvDgl+RhfQP/56BOY7EP2OlS7npG2PHTvWa/O66saJJ55odIX80aNHe227o7E33njDfPrpp2bxxRfv2MRPBGovQPKq/VsgLYALLrjA6M0di4jqT3/6k9ELQ9Zaa63Gck95ru7ThKJJS2+tcvLJJ5vJkycXEXKjTV3X0Mcq+I3G+AeBigjES14VAWQYfgV0mSa935bfVru2pgvb7rLLLmaBBRZonI477bTTzJgxY4yequtasuur119/3Zx99tlGj+L0VF7RSUt7X2GFFYweLc4111z6kgcCCEwXIHlNh+BHOgIHHnig0RsxFh2RXhzxxz/+0eiVjhtuuGHj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" class="w-11 h-11 object-contain" alt="Join QR">
+                        </div>
+                        <div class="text-left">
+                            <span class="block text-xs md:text-sm font-black text-cyan-400 group-hover:text-cyan-300 uppercase tracking-wide leading-tight">📱 Scan to Vote</span>
+                            <span id="corner-short-url" class="block text-[11px] md:text-xs font-mono font-bold text-slate-200 leading-tight">https://tinyurl.com/NPC-RAD-VOTE</span>
+                            <span class="block text-[10px] text-cyan-300/80 font-semibold leading-tight">🔍 點擊滿版放大</span>
+                        </div>
+                    </div>
+                    <!-- 鎖定票數計數器 -->
+                    <div class="bg-slate-950 px-3.5 py-1.5 rounded-2xl border-2 border-slate-800 text-right min-w-[116px]">
+                        <span class="text-2xl md:text-4xl font-black text-emerald-400 font-mono leading-none" id="total-votes">0</span>
+                        <span class="block text-[10px] md:text-xs font-extrabold text-slate-300 uppercase tracking-wider mt-0.5">Votes Locked</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 大螢幕標題 (Handout QR Code 模式 — 字體全面放大) -->
+            <div id="screen-header-handout" class="hidden mb-2 shrink-0 text-center">
+                <span class="text-xs md:text-base font-extrabold uppercase tracking-widest text-indigo-300 bg-indigo-500/20 px-4 py-1 rounded-full border border-indigo-500/40">Grand Finale &amp; Digital Handout</span>
+                <h2 class="text-2xl md:text-4xl font-black mt-1.5 text-white">Scan to Download Full Research Poster &amp; Data</h2>
+                <p class="text-xs md:text-base text-slate-300 mt-0.5 font-medium">Your mobile screen has also been automatically updated to the digital handout</p>
+            </div>
+
+            <!-- [大螢幕內容 A] 左右雙欄 (自動偵測容器剩餘高度、動態計算柱狀圖高度，確保下方結論框 100% 絕不裁切) -->
+            <div id="screen-body-normal" class="flex-1 flex flex-col md:flex-row gap-6 relative min-h-0 overflow-hidden">
+                
+                <div id="screen-left-col" class="w-full md:w-5/12 flex flex-col justify-between min-h-0 h-full overflow-hidden">
+                    <!-- 柱狀圖與標籤容器 (自動隨剩餘空間伸縮) -->
+                    <div id="bar-chart-group" class="flex-1 flex flex-col justify-center min-h-0">
+                        <div id="bar-chart-box" class="w-full flex items-end justify-center gap-6 md:gap-10 border-b-4 border-slate-700 px-3" style="height: 210px; min-height: 64px; transition: height 0.35s ease;">
+                            <div class="w-36 md:w-44 h-full flex flex-col items-center justify-end">
+                                <div class="h-9 md:h-11 w-full flex items-center justify-center shrink-0">
+                                    <span id="pct-1" class="text-2xl md:text-4xl lg:text-5xl font-black text-white font-mono leading-none">0%</span>
+                                </div>
+                                <div class="w-full flex-1 flex items-end min-h-0">
+                                    <div id="bar-1" class="w-full rounded-t-2xl bar-transition bg-gradient-to-t from-slate-700 to-slate-500" style="height: 6%; opacity: 0.6;"></div>
+                                </div>
+                            </div>
+
+                            <div class="w-36 md:w-44 h-full flex flex-col items-center justify-end">
+                                <div class="h-9 md:h-11 w-full flex items-center justify-center shrink-0">
+                                    <span id="pct-2" class="text-2xl md:text-4xl lg:text-5xl font-black text-white font-mono leading-none">0%</span>
+                                </div>
+                                <div class="w-full flex-1 flex items-end min-h-0">
+                                    <div id="bar-2" class="w-full rounded-t-2xl bar-transition bg-gradient-to-t from-slate-700 to-slate-500" style="height: 6%; opacity: 0.6;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="bar-labels-box" class="flex justify-center gap-6 md:gap-10 mt-2 shrink-0 px-2">
+                            <div id="label-1" class="w-40 md:w-48 text-center flex flex-col items-center justify-start"></div>
+                            <div id="label-2" class="w-40 md:w-48 text-center flex flex-col items-center justify-start"></div>
+                        </div>
+                    </div>
+
+                    <!-- 揭曉後的臨床結論橫幅 (自適應內距與行高，保證完整顯示不超出邊界) -->
+                    <div id="reveal-banner" class="hidden shrink-0 mt-2 bg-emerald-950/95 border-2 border-emerald-500/50 rounded-2xl p-2.5 md:p-3 transition-all duration-500">
+                        <h4 id="banner-title" class="text-sm md:text-lg lg:text-xl font-black text-emerald-300 leading-tight">🎯 Clinical Trade-off:</h4>
+                        <p id="banner-desc" class="text-xs md:text-sm text-slate-100 mt-1 leading-snug font-medium">-</p>
+                    </div>
+                </div>
+
+                <!-- 👉 右側 OAR 長圖翻轉區 -->
+                <div class="w-full md:w-7/12 flex flex-col h-[400px] md:h-auto md:absolute md:right-0 md:top-0 md:bottom-0">
+                    <div class="h-full flip-container cursor-pointer group" id="oar-flip-container" onclick="App.toggleLightbox()" title="點擊全螢幕放大">
+                        <div class="flipper w-full h-full">
+                            <div class="front bg-transparent flex items-center justify-center w-full h-full">
+                                <div class="h-full bg-slate-950 flex flex-col items-center justify-center rounded-3xl border-2 border-slate-800 shadow-2xl p-6" style="aspect-ratio: 1416 / 2475;">
+                                    <div class="text-6xl md:text-7xl mb-4">🔒</div>
+                                    <h3 class="text-slate-200 font-black text-2xl md:text-3xl text-center leading-snug">Target &amp; OAR<br>Pass Rates</h3>
+                                    <p class="text-sm md:text-lg text-slate-400 font-semibold mt-3 text-center">Classified until voting ends</p>
+                                </div>
+                            </div>
+                            <div class="back bg-transparent flex items-center justify-center relative w-full h-full">
+                                <img id="oar-goals-img" src="./oar_case1.png" class="w-full h-full object-contain drop-shadow-2xl group-hover:scale-[1.02] transition duration-500" alt="OAR Pass Rate">
+                                <div class="absolute bottom-5 w-full flex justify-center pointer-events-none">
+                                    <span class="text-xs md:text-base text-cyan-300 font-extrabold uppercase tracking-wider bg-slate-900/95 px-5 py-2 rounded-full border-2 border-cyan-500/60 shadow-[0_0_20px_rgba(6,182,212,0.4)] backdrop-blur">🔍 點擊圖片全螢幕放大</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- [大螢幕內容 B] Handout 超大 QR Code -->
+            <div id="screen-body-handout" class="hidden flex-1 flex flex-col items-center justify-center gap-6">
+                <div class="bg-white p-6 rounded-3xl shadow-[0_0_60px_rgba(99,102,241,0.45)] border-4 border-indigo-500">
+                    <img id="handout-qr-img" src="data:image/png;base64,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AhSvqq4s80KghcDBBx+cye4e9tu1Ft3zEALBBChewagZKFaB999/X5555hm5++67U/8w2XbqsKP77GSOP//5z+W4445zutgPge0HzXaQxeDBg2Vwi8umm24qF1xwgRfnHHPMIVmcKdnOuOyVAEEISDYEFK9sHOmlZALHH3+8LLDAAqKq0qdPH7FNbtdee22xopHmsv7664udB8tO5mgf0dk4LpcTTjhBbH/F0aNHy5gxY1pebrrpJtlnn33k0EMP9VK3nelV1Su2K8iKvZ2qpes+1wiEFqB4hRZnvMIFrLgc9/93RLaXYeHJpEjgtNNOE9sz0bWLb37zm7L88su7hs3Q/v7775/hMR5AIJQAxSuUdDXHKd2s7EAD+1ivdIn3kPBll13WwzPtH15jjTXaN0jw7PPPP5+gFU0QyEeA4pWPK71GKmD780WamldadkJKn8A111zTJ2y6mBdeeGG6+9xBIKQAxSukNmMVLlC172nee+89L9MsipedP8xr8KyD6K+WAhSvWi57fSed1S4TsQh+8MEHXqnYnodegd2CXn755W73uIlAWAHv4qWqjSO1VJNfh5qazyaRqsnnofpF21Dj+LipfpGjavLrJPOxDVR98skz5pFHHpGLLroo0RDf/e53ZbbZZkvUtuqNvva1r6WaYh4b9CZJSDX5a1r1i7ZJ+m1uo/pFrGry6+Y+8rqvmjwn1S/a5pVLc7+qX4ynmvy6uY8k972LV5LO3dsQgYCbgH10tfHGG0vS/fbmmWceOf/8890GqWjrmWaaKdXMJk+enCqeYATSCFC80ugRW6jAk08+KRtuuKH885//lFtuuUWSvhMYNmyY2G+l+vbtK1X438cff+w1jV690v35py1+XkkThMAUgXSv3imdcIVAaIHHHntM1llnHXnuueemDm0FbOqdDjc22WQTefjhh8X2+2tuWrb7ttegT852ehOfuK6YLDb57eqLawRcBShermK0L1xg7NixMmjQIGk+ctC2Y3JJrl+/fjJ69GhJ+92Py5h5tP3kk0+8un377be94rqCvvKVr3Td5BqB4AIUr+DkDJhG4K9//austdZa0uoQcTtwY9SoUU7dW+GybZhsqyinwIgaf/bZZ87ZvP76684xzQExHrzTnGN575N5JwGKVychno9G4MEHHxTblPajjz7qMSfb88/1QILFF19cbKPZhRdeuMd+Y37iP//5j3N6WeyOUVYvZywCohSgeEW5LCTVLGAbwdrBGZ0OTnj11VfFTvvRHN/pvhUw26tvhRVW6NQ0uuf//e9/O+d07733Osc0Byy00ELND3EfgWACFK/8qRkhpYAdTWiFy05dkqQrOxT+sMMOS9J0ujb2EaL9o77KKqtM93jsd3yKl526Je28svihc9ociK+vAMWrvmtfmpnbR4UvvfSSU76nnnqquB7AYQPMMsssYt+r2Zh2vwwX148N7WPXLE4mmcXO9GXwJcc4BSheca4LWU0R2HnnneWhhx6acs/tys6nlXTnje499+7dW2688UbZbbfduj8c7e1E77y6ZX/NNdeI7+H13bqR1VdfvftdbiMQVIDiFZSbwVwE7N2T7yk/usbZc8895dprr+2663RthW+77bZziimisWvxOuaYY1KnufLKK6fugw4QSCNA8UqjR2xuArfeeqv4fG/VnNB///tf2WabbbwLmG07ZUcwNvcb032bY9J8jj76aHnllVeSNu+xnZ11uscneQKB1gKZPtpLNfnmiarT2maaRZvOkmwW29ymTXc9PtXcR5L7qtM8VJPd7jGBCJ5Q7TyHd999N/dMbeeHXXfdNdNxtt12W7n44ou9+jzvvPPkyCOP9IoNEZT0O69x48bJiSeemElKm2++eSb9hOokyd9zFm1CzcdnHJ/5hRpHtfO/ParTt+nlkxwxCOQpYO+43nzzzUyHsD/ce+65x7vPk046SZZaainv+DwDk35sePjhh2eShn0nOHjw4Ez6ohMEfAUoXr5yNY/La/pWYOydTtb923c0dgi9b7+2c8dTTz3lG55rXNKDL2677bZM8ijbu65MJk0n0QlQvKJbknontMcee2QOsOiiizaOHvTteOTIkTJ06FDf8Nzj7F1lp0GS/kauUz/2vB0EY9dcEChSgOJVpD5jTydwxhlnyLPPPjvdY2nvLLjggjJmzBjx3bvw8ssvl8022yxtGrnGJ9nbMO3pT7omYB+drrvuul13C75m+DoLULzqvPoRzd0++jr55JMzzch2jbcdM3z34Lv00ktlp512yjSnPDpL8p2XfU+VxdgHHnhgFt3QBwKpBSheqQnpIAuB4cOHSxY7nXflMmDAAHnggQfECljXYy7X9v3QLrvs4hJSWFsr/CEGn3/++WX33XcPMRRjINBRIJbi1TFRGlRb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" class="w-72 h-72 md:w-80 md:h-80 object-contain" alt="Digital Handout QR Code">
+                </div>
+                <div class="text-center">
+                    <p class="text-2xl md:text-4xl font-black text-slate-100">🔗 Short URL: <a href="https://tinyurl.com/NPC-RAD-ASTRO" target="_blank" rel="noopener noreferrer" id="handout-url-text" class="text-orange-400 hover:text-orange-300 underline font-mono">https://tinyurl.com/NPC-RAD-ASTRO</a></p>
+                    <p class="text-base md:text-xl text-slate-300 mt-2 font-medium">Scan to save the high-resolution poster PDF</p>
+                </div>
+            </div>
+
+            <!-- [大螢幕滿版彈出層 C] 100% 專屬於現場觀眾的超大投票 QR Code (不含講者 QR Code，300人後排輕鬆掃描) -->
+            <div id="entry-qr-overlay" onclick="App.remoteToggleEntryQR(false)" class="hidden absolute inset-0 z-40 bg-slate-950/98 backdrop-blur-md rounded-3xl flex-col items-center justify-center p-6 text-center cursor-pointer transition-all">
+                <span class="text-sm md:text-lg font-extrabold uppercase tracking-widest text-cyan-300 bg-cyan-500/15 px-5 py-1.5 rounded-full border border-cyan-500/40 mb-3">📱 Live Audience Blind Review</span>
+                <h2 class="text-3xl md:text-5xl font-black text-white mb-2 tracking-tight">請掃描 QR Code 進入手機看片與投票</h2>
+                <p class="text-base md:text-xl text-slate-300 mb-5 font-medium">Scan to inspect axial CT slices (Plan A vs. Plan B) on your phone &amp; cast your vote</p>
+                <div class="bg-white p-6 rounded-3xl shadow-[0_0_80px_rgba(6,182,212,0.5)] border-4 border-cyan-400 mb-5" onclick="event.stopPropagation()">
+                    <img id="entry-large-qr-img" src="data:image/png;base64,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przjP//5j3V4PlbHKKuXNRYVkhQgeSU5LQTVXUAXgtWLM9pdnPD6668bve1H9/rtXmsC07X6VllllXZFk9v/73//2zqmBx54wLpO9wqLLbZY9028RiCYAMmreGp6yCmgVxNq4tJbl2RpSi+FP+qoo7IU7VJGTyHqH/U11lijy/bUX7gkL711S95x+fiic94YqF9fAZJXfee+NCPXU4WvvPKKVbxnnHGGsb2AQzuYY445jH6upn3q6zI8bE8b6mlXHzeT9LEyfRl8iTFNAZJXmvNCVNMFdt99d/Poo49Of2X3Q++nlXXljc4t9+7d29xyyy1mr7326rw52eeZjrw6RX/99dcb18vrOzVj1l577c4veY5AUAGSV1BuOrMR0KMn11t+dPSz7777mhtuuKHjpdVPTXw77bSTVZ0YhW2T1wknnJA7zNVXXz13GzSAQB4BklcePeoWJnDHHXcYl8+tugf03//+1+ywww7OCUyXndIrGLu3m9JrHWPWeI4//njz2muvZS3espzedbrlTnYg0FzA69ZeItkXQhSZWbb7wpdZXovMrC+S7bnX0fbQmEi2eETylcvi1L1MD2F73SXSfmyTJk3y2mezxnTlhz333LPZLudtO+64o7nsssuc6l944YXm2GOPdaobolLWz7zGjx9vTjnlFC8hbb311l7aqVoj3X93i3ot0v53VaRrGRdrka5tiLR/7dKPS51eLpWog0CRAnrE9fbbb3vtQv+I3H///c5tnnrqqWa55ZZzrl9kxaynDY8++mgvYehngoMHD/bSFo0g4CpA8nKVq3m9ooavCUaPdHy3r5/R6CX0ru3qyh3PPvusa/VC62W9+OLOO+/0EgdHXV4YaSSnAMkrJyDV/Qrss88+fhv8orUll1yycfXgF0+d/jdq1CgzdOhQp7ohKulRZbt+sn5Hrl07ul8vgtGfPBCIKUDyiqlP310Ezj77bPP3v/+9y7a8LxZddFEzduxY47p24VVXXWW22mqrvGEUWj/L2oZ5b3/SMQA9dbrhhht2vIz8k+7rLEDyqvPsJzR2PfV12mmneY1IV43XFTNc1+C74oorzG677eY1piIay/KZl35O5aPvQw891EcztIFAbgGSV25CGvAhMGLECONjpfOOWAYMGGAefvhhowmsY5vNT/18aI899rCpEq2sJv4QnS+88MJm7733DtEVfSDQViCV5NU2UApUW8DXJdyqpH9kb7vtNrPQQgvpS+vHyJEjja6laF0xUoUsR14aWt5Th7piyRxzzKFN8UAgugDJK/oUEIAuVzRx4kQvEPrH9dZbb3W+weTNN99sttlmGy+xhGoka/Ky+TJz99j1s8Pvf//73TfzGoFoAiSvaPR03CFw0003dTzN/fOSSy4xq622mlM7o0ePNttuu61T3ZiVsiavOeec0znM008/3bkuFREoQoDkVYQqbWYW0NUh9Egpc4UeCupnVLvuumsPJVrveuaZZ0wZ1jFsNgI1bLa9+7bZZ5+9+6ZMrzfffHMzbNiwTGUphEAoAZJXKGn6aSpw3333mQ8//LDpPpuNffv2Neeff75NlRlln376aTN48GAzZcqUGdvK9CRr8pptttmshzXXXHOZ3/72t9b1qOAsQMWMAiSvjFAUK0bA11HXueeea+aee27rICdMmGD0e0vvvPOOdd1UKmRNXvp5oG3Mv/vd75w/P7Tti/II2AiQvGy0KOtdwEfy6t+/v3E5Xag3uCx74tIJyXohhu2Rl64xufPOO2sXPBBITqCXLi3j8khuJDkDcjFoV6fZfpH2qzKLdC2Tc2jJVtejHf2sKW+Ahx12mHUTeqpyyJAh5q233rKum1qFLCtsaMw2yWvjjTc2v/jFL7Racg+Rrr8fIsW8DjVwEfv4m/1tabfNZTzt2oy5nyMvlxmljheBcePG5W5HRMwuu+xi3Y7eIkVPGVpXTLBC1iOvrKcN9UhWv76Q93thCVIRUoUESF4VmsyyDeWJJ57IHfJ6661n9GINm4Z01Xq92aVNnZTL9vyZ18zIsxx56Re8//znP5v55ptvZkWeIZCgAMkrwUmpS0g+FuHVy7htvD766CNz5JFH2lTxWtY20WbpPGvyanep/IILLmjuuusus8QSS2TpljIIRBUgeUXlr3fnr7/+em6AjTbayKqN3//+99EuidcvUD///PNm+eWXt4q5XeGsyetLX/pSy6a+/vWvm0ceecR7bC07ZEetBIoYLMmrCFXazCTgYyHeNddcM1NfHYVifGdJb8eiN9nUe5XNP//85t57721cnt8RU96fWT/zanXktcACCxg9VdivX7+8oVAfgWACJK9g1HTUXSDvl4L1aKF7mz29njp1qnnqqad6KuJ937zzztu4EeY666wzo21NYHp6br/99puxLc+TrMtDNUteeqpQvyi+9NJL5wmBuggEFyB5BScveYcew//kk09ytWZ7ny4fVzfaBKxJ6u677zarr75602oXX3yx2X///Zvus9molytnKd/9tGGfPn2MxrfMMstkqU4ZBJISIHklNR31CmbatGm5BqxLF9k0MHnyZJviucrqah96qnCVVVbpsZ2LLrrI5P0isMtpw3nmmadxqnCFFVboMT52IpCqAMkr1ZkhrrYCItK2TOcCRVzp17n9zs/1e1LLLrts500tn19zzTVm7733brm/3Y6syavjyOsrX/mK0a8KuK6+3y6eAPvpAgFD8uJNEE0g6+muVgHqKhmt9jXbbnuasVkbWbbdeOONRlfvyFK2o4xeBXnooYd2vLT6mfVqQ/3MS49WNXHZXuhiFRCFEQggQPIKgEwXzQU6jgSa722/9YMPPmhfqFMJvbNy0Z/vXHfddWa77bbr1Gv2p+ecc4459dRTs1eYXjJr8tJThZdffrnRL3ZPr8oPBEorED15lVaOwHML9O7dO1cbL7zwgnV9XYjXulLGCtdee63RZacyFm9a7NhjjzXnnXde032tNmY9bfjrX//abL/99q2aYTsCpRLoJSJGxP5RqlEWFKwIbnlo9UggT3294OMf//iHVROup+Z66kQ/Q7rpppu83czyoIMOMnolYk99dt6X9circx2etxfQ09q2j/at+ikhYv+3R8S+jku0Ivb9iNjX4cjLZXao40VAL9XO29DDDz9s1cRyyy1n9tlnn2518r28+uqrzbbbbpuvkW619Ttgl156abetzV/mPYJt3ipbEUhbgOSV9vxUOrqllloq9/j0C7a2jZx55plmscUWs63WtLwecW2zzTZN9+XduNdeexn9DK1dO62+R9auHvsRKLMAyavMs1fy2PXWG3mHMHLkSOsm9IgvS1Jo17CuTu/7iKt7n/oZ2j333NPyLtGauIYOHdq9Gq9LKEDIdgIkLzsvSnsU0FN4eZt76aWXzAMPPGDdzNprr91YiFaXR7KtrJ/VaUI54IADbKs6lV9//fUbq71399pzzz0bS085NUolBEouQPIq+QSWOfwNNtjA+Ljhoe3VeR1ma6yxhhk/frzJmoQ0aR1yyCFG70OmCaWjnRA/NVa967Qmav2cT2/tctlllxld9DdE//SBQGoCJK8iZoQ2MwnoEkorrbRSprI9FbrqqqvMK6+80lORlvsWXXRRo6f/Xn75ZXPuuec2lmoaMGCA6ViNQxes3WqrrYxeBq/fK9MySy65ZMv22u149dVXzdNPP92uWMv9esQ4cODAlqcRW1ZkBwIVEyB5VWxCyzacTTbZxEvIJ510Uq52dIV6ParSpZr0aOzdd981epm03jBTP1fbaaedcrWvlfVeXptuuqlZccUVjUUHircAABAASURBVB416TYeCCDgJkDycnOjlieBrbfe2ktLurxS6FXjbQLXU356W5TnnnuuUW3vvfc2miwbL4r5h1YRqLQAyavS05v+4NZdd12jtw7xEekee+zhoxnvbbz44otmo402Mu+9916XtvWzOh+3ROnSKC8QqIkAyasmE53yMHfddVcv4elnSQcffLCXtnw18vbbbxs9Nao/m7Wpd3b2cUqyWdtsQyC6QIEBkLwKxKXpbAI+E875559vvTZgtijtS+mRliauiRMn9lhZb5+iF4VMnTq1x3LsRACBmQIkr5kWPIskoN9fGjx4sLfe9bMkXbLJW4MODemai7p6+1NPPZWp9qhRo4zepsT1qslMnVAIgQoJ9NIrqlweFTJwHkrKbiL2C132DFHs3mOOOcZrB8OGDTN5r0B0DUhPX+rl7BMmTLBqQhPd8ssvb04//XSrelUoPGnSpMwLhLv83rnUqYJr5zFUzYAjr86zy/NoAnrzxtVWW81r/8OHDzc77LCDmTJlitd2e2pMvweml8K/+eabPRVrue/jjz82Rx99tNHvl/30pz81eql+y8LsQKDGAiSvGk9+akMv4kjphhtuMHoU5LKAr43PO++8Y3SNQV+3XNErFE844QTzzW9+03zta19r3ODytddeswmpkmUZFAIdAiSvDgl+RhfQP/56BOY7EP2OlS7npG2PHTvWa/O66saJJ55odIX80aNHe227o7E33njDfPrpp2bxxRfv2MRPBGovQPKq/VsgLYALLrjA6M0di4jqT3/6k9ELQ9Zaa63Gck95ru7ThKJJS2+tcvLJJ5vJkycXEXKjTV3X0Mcq+I3G+AeBigjES14VAWQYfgV0mSa935bfVru2pgvb7rLLLmaBBRZonI477bTTzJgxY4yequtasuur119/3Zx99tlGj+L0VF7RSUt7X2GFFYweLc4111z6kgcCCEwXIHlNh+BHOgIHHnig0RsxFh2RXhzxxz/+0eiVjhtuuGHj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" class="w-72 h-72 md:w-88 md:h-88 object-contain" style="width: min(52vh, 360px); height: min(52vh, 360px);" alt="Audience Mobile Entry QR Code">
+                </div>
+                <div class="flex flex-col items-center gap-1.5" onclick="event.stopPropagation()">
+                    <p class="text-2xl md:text-4xl font-black text-white">🔗 Short URL: <span id="entry-short-url-text" class="text-cyan-400 font-mono underline">https://tinyurl.com/NPC-RAD-VOTE</span></p>
+                    <p class="text-xs md:text-sm font-mono text-slate-400">Direct: https://waynealex0000.github.io/rad-npc/Test-cloud.html?view=mobile</p>
+                </div>
+                <span class="text-sm md:text-base text-slate-400 font-semibold mt-4">（點擊畫面任意處、或由講者手機遙控器即可收起此 QR Code 視窗）</span>
+            </div>
+
+        </div>
+
+<!-- ------------------------------------------
+             3. 講者遙控器 (Speaker Remote)
+             ------------------------------------------ -->
+        <div id="panel-remote" class="w-full xl:w-72 bg-slate-900 border border-slate-800 rounded-3xl p-4 flex flex-col justify-between shrink-0">
+            <div class="space-y-4">
+                <div class="border-b border-slate-800 pb-2 flex justify-between items-center">
+                    <div>
+                        <span class="text-[9px] font-bold uppercase tracking-wider text-rose-400">Speaker Remote</span>
+                        <h3 class="text-sm font-bold text-white">講者雲端遙控器</h3>
+                    </div>
+                    <span id="remote-cloud-status" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" title="雲端連線中"></span>
+                </div>
+
+                <!-- 0. 大螢幕入場 QR Code 雲端開關 -->
+                <div class="bg-slate-950 p-3 rounded-xl border border-cyan-500/40 space-y-2">
+                    <span class="text-xs text-cyan-400 font-bold block">0. 觀眾入場投票 QR Code：</span>
+                    <button onclick="App.remoteToggleEntryQR()" id="btn-remote-entry-qr" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-extrabold py-2.5 px-3 rounded-xl shadow-lg transition flex items-center justify-center gap-1.5">
+                        📱 大螢幕彈出滿版 QR Code
+                    </button>
+                </div>
+
+                <!-- 切換案例 (發送至雲端) -->
+                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                    <span class="text-xs text-slate-400 font-semibold block">1. 選擇盲測案例：</span>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="App.remoteLoadCase(1)" id="btn-case-1" class="bg-orange-600 text-white text-[10px] font-bold py-1.5 rounded-lg transition">Case 1: T3N0 (52張)</button>
+                        <button onclick="App.remoteLoadCase(2)" id="btn-case-2" class="bg-slate-800 text-slate-400 text-[10px] font-bold py-1.5 rounded-lg hover:bg-slate-700 transition">Case 2: T3N1 (32張)</button>
+                    </div>
+                </div>
+
+                <!-- 互動控制 (發送至雲端) -->
+                <div class="space-y-2">
+                    <span class="text-[10px] text-slate-400 font-semibold block px-1">2. 現場投票與揭曉控制：</span>
+                    <div class="grid grid-cols-2 gap-1.5">
+                        <button onclick="App.remoteSimulateVotes('RAD')" class="bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 text-[10px] font-bold py-2 px-2 rounded-xl transition">
+                            ⚡ 模擬 RAD 贏
+                        </button>
+                        <button onclick="App.remoteSimulateVotes('VMAT')" class="bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 text-blue-200 text-[10px] font-bold py-2 px-2 rounded-xl transition">
+                            ⚡ 模擬 VMAT 贏
+                        </button>
+                    </div>
+                    <button onclick="App.remoteRevealAnswer()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold py-2.5 px-3 rounded-xl shadow-lg transition flex items-center justify-center gap-1">
+                        🔓 揭曉答案與 OAR 圖表
+                    </button>
+                    <button onclick="App.remoteToggleHandoutMode()" id="btn-remote-handout" class="w-full bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1">
+                        🎁 切換 Digital Handout 模式
+                    </button>
+                    <button onclick="App.remoteResetCase()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold py-2 px-3 rounded-xl transition">
+                        🔄 重置當前盲測
+                    </button>
+                </div>
+            </div>
+            
+            <div class="text-[10px] text-slate-400 bg-slate-950 p-3 rounded-xl border border-slate-800 leading-relaxed mt-4">
+                🔗 <strong>當前檢視模式：</strong><span class="text-orange-400 uppercase ml-1" id="debug-view-mode"></span><br>
+                在網址後方加上 <code>?view=screen</code> 或 <code>?view=mobile</code> 即可將畫面獨立分離。
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 🔍 全螢幕放大 Lightbox 容器 -->
+    <div id="image-lightbox" class="hidden" onclick="App.toggleLightbox()">
+        <img id="lightbox-img" src="" alt="Full Size OAR Goals">
+    </div>
+
+
+    <!-- =========================================================================
+         ⚙️ 第三部分：核心系統引擎與雲端資料庫邏輯
+         ========================================================================= -->
+    <script>
+        // 設定網址路由 (隱藏非指定區塊) 與內嵌 Iframe 自動偵測
+        window.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('debug-view-mode').innerText = viewMode + (isEmbeddedIframe ? ' (iframe)' : '');
+            if (viewMode !== 'all') {
+                document.getElementById('app-header').style.display = 'none'; // 隱藏共用標題列
+                if (viewMode !== 'mobile') document.getElementById('panel-mobile').style.display = 'none';
+                if (viewMode !== 'screen') document.getElementById('panel-screen').style.display = 'none';
+                if (viewMode !== 'remote') document.getElementById('panel-remote').style.display = 'none';
+            }
+            if (viewMode === 'screen' || isEmbeddedIframe) {
+                document.documentElement.classList.add('is-screen-view');
+                document.body.classList.add('is-screen-view');
+            }
+            App.init();
+        });
+
+        const App = {
+            state: {
+                currentCase: 1,
+                hasLoadedInitialCase: false,
+                hudVisible: false, // 預設隱藏劑量數據，避免影響聽眾第一時間直覺盲測
+                preloadedImages: { A: {}, B: {} },
+                preloadedOarImages: {},
+                slicePreloadTimer: null,
+                isPortrait: true,
+                selectedPlan: null,
+                voteLocked: false,
+                status: 'voting', // 'voting', 'revealed', 'handout'
+                votes: { A: 0, B: 0 },
+                sessionTime: 0,
+                showEntryQR: false,
+                zoomScale: 1,
+                panX: 0,
+                panY: 0,
+                justPanned: false
+            },
+
+            // 📐 自動偵測視窗/Iframe 剩餘高度並動態調整柱狀圖高度，確保開票時下方結論框 100% 完整顯示絕不裁切
+            autoFitScreenLayout() {
+                const panel = document.getElementById('panel-screen');
+                const bodyNormal = document.getElementById('screen-body-normal');
+                const leftCol = document.getElementById('screen-left-col');
+                const chartBox = document.getElementById('bar-chart-box');
+                const labelsBox = document.getElementById('bar-labels-box');
+                const banner = document.getElementById('reveal-banner');
+                if (!panel || !bodyNormal || !leftCol || !chartBox || !labelsBox || panel.style.display === 'none') return;
+
+                const vh = window.innerHeight || document.documentElement.clientHeight || 700;
+                const isCompact = isEmbeddedIframe || vh < 760;
+                document.body.classList.toggle('is-compact-screen', isCompact);
+
+                // 先重置任何縮放以取得真實可用高度
+                leftCol.style.zoom = '1';
+                leftCol.style.transform = 'none';
+
+                const bodyH = bodyNormal.clientHeight;
+                if (bodyH <= 0) return;
+
+                const labelsH = labelsBox.offsetHeight || 0;
+                const isBannerVisible = banner && !banner.classList.contains('hidden');
+                const bannerH = isBannerVisible ? (banner.offsetHeight || 0) : 0;
+                const safetyGap = isBannerVisible ? 22 : 16;
+
+                // 計算分配給柱狀圖的精確像素高度 (未開票時最高 240px；開票後自動扣除下方標籤與結論框高度)
+                const maxChartH = isCompact ? 205 : 245;
+                const idealChartH = Math.min(maxChartH, Math.max(68, bodyH - labelsH - bannerH - safetyGap));
+                chartBox.style.height = `${idealChartH}px`;
+
+                // 二次保險：若在極矮視窗下 (例如高度 < 420px) 68px 柱高加上文字仍超出容器，自動等比微縮左側欄
+                const totalNeededH = idealChartH + labelsH + bannerH + safetyGap;
+                if (totalNeededH > bodyH && bodyH > 120) {
+                    const scale = Math.max(0.72, (bodyH / totalNeededH) * 0.97);
+                    leftCol.style.zoom = scale.toFixed(3);
+                }
+            },
+
+            // 預先載入並強制綁定 OAR 目標達成率長圖，杜絕第一次開票抓不到圖的問題
+            ensureOarImageLoaded(forceRepaint = false) {
+                const caseNum = this.state.currentCase || 1;
+                const c = APP_CONFIG.CASES[caseNum] || APP_CONFIG.CASES[1];
+                const oarEl = document.getElementById('oar-goals-img');
+                if (!oarEl || !c) return;
+
+                const fallbackSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="1416" height="2475" viewBox="0 0 1416 2475"><rect width="100%" height="100%" rx="40" fill="%230f172a" stroke="%23334155" stroke-width="12"/><text x="50%" y="45%" font-family="sans-serif" font-size="65" font-weight="bold" fill="%2338bdf8" text-anchor="middle">Case ${caseNum}: OAR Goals Chart</text><text x="50%" y="51%" font-family="sans-serif" font-size="42" fill="%2394a3b8" text-anchor="middle">(1416 x 2475 Portrait Image)</text></svg>`;
+                const targetSrc = APP_CONFIG.USE_REAL_IMAGES ? c.oarImage : fallbackSvg;
+
+                // 綁定自動容錯：若大小寫差異 (如 OAR_case1.png) 則自動嘗試替代檔名
+                oarEl.onerror = () => {
+                    if (!oarEl.dataset.retriedUpper && c.oarImage) {
+                        oarEl.dataset.retriedUpper = '1';
+                        oarEl.src = c.oarImage.replace('oar_case', 'OAR_case');
+                    }
+                };
+
+                const currentAttr = oarEl.getAttribute('src');
+                if (currentAttr !== targetSrc || !oarEl.complete || oarEl.naturalWidth === 0) {
+                    delete oarEl.dataset.retriedUpper;
+                    oarEl.src = targetSrc;
+                }
+
+                if (forceRepaint) {
+                    // 強制瀏覽器重新計算 3D 翻轉層內的圖片尺寸與合成貼圖
+                    oarEl.style.display = 'none';
+                    void oarEl.offsetHeight;
+                    oarEl.style.display = 'block';
+                }
+            },
+
+            init() {
+                document.getElementById('handout-speaker').innerText = APP_CONFIG.HANDOUT_INFO.speakerName;
+                document.getElementById('handout-affil').innerText = APP_CONFIG.HANDOUT_INFO.affiliation;
+                document.getElementById('handout-url-text').innerText = APP_CONFIG.HANDOUT_INFO.shortUrl;
+                if (document.getElementById('btn-download-poster')) {
+                    document.getElementById('btn-download-poster').href = APP_CONFIG.HANDOUT_INFO.posterPdfUrl;
+                }
+                if (document.getElementById('entry-short-url-text')) {
+                    document.getElementById('entry-short-url-text').innerText = APP_CONFIG.MOBILE_SHORT_URL;
+                }
+                if (document.getElementById('corner-short-url')) {
+                    document.getElementById('corner-short-url').innerText = APP_CONFIG.MOBILE_SHORT_URL;
+                }
+
+                // 🥇 第一優先預載入 Case 1 與 Case 2 的 OAR 長圖 (避免被 104 張 CT 切面圖塞車擋住)
+                if (APP_CONFIG.USE_REAL_IMAGES) {
+                    [1, 2].forEach(num => {
+                        const cfg = APP_CONFIG.CASES[num];
+                        if (cfg && cfg.oarImage) {
+                            const img = new Image();
+                            img.src = cfg.oarImage;
+                            if (img.decode) img.decode().catch(() => {});
+                            this.state.preloadedOarImages[num] = img;
+                        }
+                    });
+                }
+
+                // 🚀 網頁一打開立即載入預設 Case 1 的所有設定、OAR 圖表與預設隱藏 HUD
+                this.localLoadCase(this.state.currentCase || 1);
+
+                // 當外層簡報切換至第 11 頁 (iframe 由隱藏變為可見) 或視窗完全載入/縮放時，自動執行高度自適應與 OAR 圖片確認
+                window.addEventListener('load', () => {
+                    this.ensureOarImageLoaded(true);
+                    this.autoFitScreenLayout();
+                });
+                window.addEventListener('resize', () => {
+                    this.ensureOarImageLoaded(false);
+                    this.autoFitScreenLayout();
+                    this.autoFitHudPanels();
+                });
+                if (typeof ResizeObserver !== 'undefined') {
+                    const ro = new ResizeObserver(() => this.autoFitScreenLayout());
+                    const ps = document.getElementById('panel-screen');
+                    if (ps) ro.observe(ps);
+                }
+                setTimeout(() => this.autoFitScreenLayout(), 60);
+                
+                // 📡 啟動 Firebase 雲端監聽 (Real-time DB Listener)
+                dbRef.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (!data) {
+                        // 初始化遠端資料庫 (確保寫入 currentCase: 1)
+                        this.remoteLoadCase(1);
+                        return;
+                    }
+                    this.syncCloudState(data);
+                });
+                // 啟動雙計畫同步縮放與單指/滑鼠同步平移手勢
+                this.initSyncPanAndPinch();
+                this.updateMobileViewportHeight();
+                window.addEventListener('resize', () => this.updateMobileViewportHeight());
+                if (window.visualViewport) {
+                    window.visualViewport.addEventListener('resize', () => this.updateMobileViewportHeight());
+                }
+
+                // 📱 針對真實手機環境的優化
+                if (viewMode === 'mobile') {
+                    document.documentElement.classList.add('is-mobile-view');
+                    document.body.classList.add('is-mobile-view'); // 觸發全螢幕 CSS
+                    document.body.style.padding = '0'; // 移除網頁預設留白
+                    
+                    // 🔄 自動偵測手機實體轉向
+                    const checkOrientation = () => {
+                        const isLandscape = window.innerWidth > window.innerHeight;
+                        // 如果實體是橫的，但系統判定是直的 (或相反)，就自動觸發轉向
+                        if ((isLandscape && this.state.isPortrait) || (!isLandscape && !this.state.isPortrait)) {
+                            this.toggleOrientation();
+                        }
+                    };
+                    // 監聽螢幕旋轉與尺寸改變事件
+                    window.addEventListener('resize', checkOrientation);
+                    window.addEventListener('orientationchange', () => setTimeout(checkOrientation, 100));
+                    
+                    // 初始載入時先檢查一次方向
+                    checkOrientation(); 
+                }
+            },
+
+            // 將雲端狀態套用到本地畫面
+            syncCloudState(data) {
+                // 檢查是否為「全新回合」，強制解除本地鎖定
+                if (data.sessionTime !== this.state.sessionTime) {
+                    this.state.sessionTime = data.sessionTime;
+                    this.state.voteLocked = false;
+                    this.state.selectedPlan = null;
+                }
+
+                // 檢查是否切換了 Case 或尚未完成初始載入
+                const targetCase = data.currentCase || 1;
+                const caseChanged = (targetCase !== this.state.currentCase) || !this.state.hasLoadedInitialCase;
+                if (caseChanged) {
+                    this.localLoadCase(targetCase);
+                }
+
+                this.state.votes = data.votes || { A: 0, B: 0 };
+                this.localUpdateStageChart();
+
+                // 檢查是否切換了大螢幕滿版入場 QR Code 狀態
+                const remoteQrState = !!data.showEntryQR;
+                if (remoteQrState !== this.state.showEntryQR) {
+                    this.state.showEntryQR = remoteQrState;
+                    this.localToggleEntryQR(remoteQrState);
+                }
+
+                // 檢查顯示狀態 ('voting', 'revealed', 'handout')；若剛切換 Case 也重新套用雲端當前狀態
+                const targetStatus = data.status || 'voting';
+                if (targetStatus !== this.state.status || caseChanged) {
+                    this.state.status = targetStatus;
+                    if (targetStatus === 'voting') {
+                        this.localResetSystem();
+                    } else if (targetStatus === 'revealed') {
+                        this.localRevealAnswer();
+                    } else if (targetStatus === 'handout') {
+                        this.localToggleHandoutMode(true);
+                    }
+                }
+            },
+
+            get cfg() { return APP_CONFIG.CASES[this.state.currentCase]; },
+
+            /* --- 雲端寫入操作 (講者遙控器與聽眾投票觸發) --- */
+            
+            remoteToggleEntryQR(forceState) {
+                const nextState = typeof forceState === 'boolean' ? forceState : !this.state.showEntryQR;
+                dbRef.update({ showEntryQR: nextState });
+            },
+
+            localToggleEntryQR(active) {
+                const overlay = document.getElementById('entry-qr-overlay');
+                const btn = document.getElementById('btn-remote-entry-qr');
+                if (overlay) {
+                    overlay.classList.toggle('hidden', !active);
+                    overlay.classList.toggle('flex', active);
+                }
+                if (btn) {
+                    btn.innerHTML = active ? '🙈 收起大螢幕滿版 QR Code' : '📱 大螢幕彈出滿版 QR Code';
+                    btn.className = active
+                        ? "w-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold py-2.5 px-3 rounded-xl shadow-lg transition flex items-center justify-center gap-1.5"
+                        : "w-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-extrabold py-2.5 px-3 rounded-xl shadow-lg transition flex items-center justify-center gap-1.5";
+                }
+            },
+
+            remoteLoadCase(caseNum) {
+                dbRef.set({ currentCase: caseNum, votes: { A: 0, B: 0 }, status: 'voting', showEntryQR: false, sessionTime: Date.now() });
+            },
+
+            remoteResetCase() {
+                dbRef.update({ votes: { A: 0, B: 0 }, status: 'voting', showEntryQR: false, sessionTime: Date.now() });
+            },
+
+            remoteRevealAnswer() {
+                dbRef.update({ status: 'revealed', showEntryQR: false });
+            },
+
+            remoteToggleHandoutMode() {
+                const newStatus = this.state.status === 'handout' ? 'revealed' : 'handout';
+                dbRef.update({ status: newStatus });
+            },
+
+            remoteSimulateVotes(favor = 'RAD') {
+                const isARad = this.cfg.radPlan === 'A';
+                const high = Math.floor(Math.random() * 4) + 12;
+                const low = Math.floor(Math.random() * 3) + 1;
+                let addA = 0, addB = 0;
+                
+                if (favor === 'RAD') { addA = isARad ? high : low; addB = isARad ? low : high; }
+                else { addA = isARad ? low : high; addB = isARad ? high : low; }
+
+                dbRef.child('votes').transaction(current => {
+                    if(!current) return {A: addA, B: addB};
+                    return { A: (current.A || 0) + addA, B: (current.B || 0) + addB };
+                });
+            },
+
+            confirmVote() {
+                if (this.state.voteLocked) return;
+                if (!this.state.selectedPlan) {
+                    const toast = document.getElementById('toast-warning');
+                    toast.classList.remove('hidden', 'shake-anim'); void toast.offsetWidth; toast.classList.add('shake-anim');
+                    setTimeout(() => toast.classList.add('hidden'), 2600); return;
+                }
+                this.state.voteLocked = true;
+                const plan = this.state.selectedPlan;
+                
+                // 本地鎖定 UI
+                const btn = document.getElementById('btn-submit-vote');
+                btn.className = "w-full bg-emerald-700 text-white font-bold py-2 rounded-xl text-xs cursor-default"; btn.style.background = "#047857"; btn.style.color = "#ffffff";
+                btn.innerText = `🔒 已送出 PLAN ${plan}！請看大螢幕開票`;
+
+                // 傳送交易至雲端 Firebase
+                dbRef.child('votes').child(plan).transaction(currentVotes => (currentVotes || 0) + 1);
+            },
+
+
+            /* --- 本地畫面渲染操作 (負責聽雲端的指示改變畫面) --- */
+
+            localLoadCase(caseNum) {
+                this.state.currentCase = caseNum || 1;
+                this.state.hasLoadedInitialCase = true;
+                const c = this.cfg;
+
+                document.getElementById('mobile-case-title').innerText = c.title;
+                document.getElementById('screen-case-badge').innerText = `Live Blind Review — Case ${caseNum}`;
+                document.getElementById('btn-case-1').className = caseNum === 1 ? "bg-orange-600 text-white text-[10px] font-bold py-1.5 rounded-lg transition" : "bg-slate-800 text-slate-400 text-[10px] font-bold py-1.5 rounded-lg hover:bg-slate-700 transition";
+                document.getElementById('btn-case-2').className = caseNum === 2 ? "bg-orange-600 text-white text-[10px] font-bold py-1.5 rounded-lg transition" : "bg-slate-800 text-slate-400 text-[10px] font-bold py-1.5 rounded-lg hover:bg-slate-700 transition";
+
+                document.getElementById('slice-slider').max = c.totalSlices;
+                document.getElementById('total-slice-display').innerText = c.totalSlices;
+
+                // 🥇 最優先設定並確認舞台大螢幕的 OAR 目標達成率長圖 (不讓 CT 切面預載入佔用頻寬)
+                this.ensureOarImageLoaded(true);
+
+                const midSlice = Math.floor(c.totalSlices / 2);
+                App.state.preloadedImages = { A: {}, B: {} };
+                if (this.state.slicePreloadTimer) {
+                    clearTimeout(this.state.slicePreloadTimer);
+                    this.state.slicePreloadTimer = null;
+                }
+
+                if (APP_CONFIG.USE_REAL_IMAGES && (viewMode === 'mobile' || viewMode === 'all')) {
+                    document.getElementById('mock-img-a').classList.add('hidden');
+                    document.getElementById('mock-img-b').classList.add('hidden');
+                    document.getElementById('img-plan-a').classList.remove('hidden');
+                    document.getElementById('img-plan-b').classList.remove('hidden');
+                    const prefixForA = c.radPlan === 'A' ? 'planB' : 'planA';
+                    const prefixForB = c.radPlan === 'B' ? 'planB' : 'planA';
+
+                    // 先載入正中央切面供立即顯示
+                    App.state.preloadedImages.A[midSlice] = new Image();
+                    App.state.preloadedImages.A[midSlice].src = `${c.folder}/${prefixForA}_${midSlice}.webp`;
+                    App.state.preloadedImages.B[midSlice] = new Image();
+                    App.state.preloadedImages.B[midSlice].src = `${c.folder}/${prefixForB}_${midSlice}.webp`;
+
+                    // 延遲 80ms 後在背景預載入其餘切面，確保 OAR 長圖與主畫面優先完成載入
+                    this.state.slicePreloadTimer = setTimeout(() => {
+                        for (let i = 1; i <= c.totalSlices; i++) {
+                            if (i === midSlice) continue;
+                            App.state.preloadedImages.A[i] = new Image();
+                            App.state.preloadedImages.A[i].src = `${c.folder}/${prefixForA}_${i}.webp`;
+                            App.state.preloadedImages.B[i] = new Image();
+                            App.state.preloadedImages.B[i].src = `${c.folder}/${prefixForB}_${i}.webp`;
+                        }
+                    }, 80);
+                }
+
+                const dataA = c.radPlan === 'A' ? c.hud.rad : c.hud.vmat;
+                const dataB = c.radPlan === 'B' ? c.hud.rad : c.hud.vmat;
+                ['d99', 'd1', 'v107', 'v95', 'ci', 'hi', 'bs', 'cord', 'rparo', 'lparo', 'smpcm', 'ipcm'].forEach(k => {
+                    const elA = document.getElementById(`a-${k}`);
+                    const elB = document.getElementById(`b-${k}`);
+                    if (elA) elA.innerText = dataA[k];
+                    if (elB) elB.innerText = dataB[k];
+                });
+
+                this.localResetSystem();
+                this.syncSlice(midSlice);
+            },
+
+            localUpdateStageChart() {
+                const total = this.state.votes.A + this.state.votes.B;
+                document.getElementById('total-votes').innerText = total;
+                if (total === 0) {
+                    document.getElementById('pct-1').innerText = '0%'; document.getElementById('pct-2').innerText = '0%';
+                    document.getElementById('bar-1').style.height = '6%'; document.getElementById('bar-2').style.height = '6%';
+                    return;
+                }
+
+                const bar1Plan = this.cfg.swapBarsOnScreen ? 'B' : 'A';
+                const bar2Plan = this.cfg.swapBarsOnScreen ? 'A' : 'B';
+                const pct1 = Math.round((this.state.votes[bar1Plan] / total) * 100);
+                const pct2 = 100 - pct1;
+
+                document.getElementById('pct-1').innerText = pct1 + '%'; document.getElementById('pct-2').innerText = pct2 + '%';
+                document.getElementById('bar-1').style.height = Math.max(pct1, 6) + '%'; document.getElementById('bar-2').style.height = Math.max(pct2, 6) + '%';
+
+                if (this.state.status === 'voting') {
+                    const b1 = document.getElementById('bar-1'); const b2 = document.getElementById('bar-2');
+                    b1.style.opacity = pct1 >= pct2 ? '1' : '0.4'; b2.style.opacity = pct2 >= pct1 ? '1' : '0.4';
+                    b1.style.boxShadow = pct1 >= pct2 ? '0 0 22px rgba(255,255,255,0.18)' : 'none'; b2.style.boxShadow = pct2 >= pct1 ? '0 0 22px rgba(255,255,255,0.18)' : 'none';
+                }
+            },
+
+            localRevealAnswer() {
+                // UI 強制切換為非 handout 模式
+                if (this.state.status === 'revealed') this.localToggleHandoutMode(false);
+
+                const c = this.cfg;
+                const radPlan = c.radPlan;
+                const vmatPlan = radPlan === 'A' ? 'B' : 'A';
+                const bar1Plan = c.swapBarsOnScreen ? 'B' : 'A';
+
+                const radBarEl = document.getElementById(bar1Plan === radPlan ? 'bar-1' : 'bar-2');
+                const vmatBarEl = document.getElementById(bar1Plan === radPlan ? 'bar-2' : 'bar-1');
+                const radLabelEl = document.getElementById(bar1Plan === radPlan ? 'label-1' : 'label-2');
+                const vmatLabelEl = document.getElementById(bar1Plan === radPlan ? 'label-2' : 'label-1');
+
+                const radVotes = this.state.votes[radPlan] || 0;
+                const vmatVotes = this.state.votes[vmatPlan] || 0;
+                const isRadWinner = radVotes > vmatVotes;
+                const isVmatWinner = vmatVotes > radVotes;
+
+                const radTrophy = (isRadWinner || radVotes === vmatVotes) ? '🏆 ' : '';
+                const vmatTrophy = (isVmatWinner || radVotes === vmatVotes) ? '🏆 ' : '';
+
+                radBarEl.className = "w-full rounded-t-xl bar-transition bg-gradient-to-t from-emerald-500 to-green-400";
+                vmatBarEl.className = "w-full rounded-t-xl bar-transition bg-gradient-to-t from-blue-600 to-indigo-400";
+                radBarEl.style.opacity = isVmatWinner ? '0.55' : '1'; radBarEl.style.boxShadow = isVmatWinner ? 'none' : '0 0 30px rgba(16,185,129,0.55)';
+                vmatBarEl.style.opacity = isRadWinner ? '0.55' : '1'; vmatBarEl.style.boxShadow = isRadWinner ? 'none' : '0 0 30px rgba(59,130,246,0.55)';
+
+                const formattedRadTitle = c.radTitle.replace(/\s*\(([^)]+)\)/, '<br><span class="whitespace-nowrap">($1)</span>');
+                const formattedVmatTitle = c.vmatTitle.replace(/\s+/, '<br>');
+                radLabelEl.innerHTML = `<span class="text-base md:text-xl lg:text-2xl font-black text-emerald-400 block leading-tight"><span class="whitespace-nowrap">${radTrophy}PLAN ${radPlan}:</span><br>${formattedRadTitle}</span><span class="text-[11px] md:text-sm text-emerald-200 font-bold block mt-0.5 leading-tight">${c.radSub}</span>`;
+                vmatLabelEl.innerHTML = `<span class="text-base md:text-xl lg:text-2xl font-black text-blue-400 block leading-tight"><span class="whitespace-nowrap">${vmatTrophy}PLAN ${vmatPlan}:</span><br>${formattedVmatTitle}</span><span class="text-[11px] md:text-sm text-blue-200 font-bold block mt-0.5 leading-tight">${c.vmatSub}</span>`;
+
+                const banner = document.getElementById('reveal-banner');
+                const bTitle = document.getElementById('banner-title');
+                const bDesc = document.getElementById('banner-desc');
+
+                if (isRadWinner) {
+                    banner.className = "block shrink-0 mt-2.5 bg-emerald-950/95 border-2 border-emerald-500/50 rounded-2xl p-3 md:p-3.5 transition-all duration-500 shadow-lg";
+                    bTitle.className = "text-base md:text-xl font-black text-emerald-300 leading-tight"; bTitle.innerText = "🎯 Clinical Intuition Trade-off: RAD Wins!";
+                    bDesc.innerHTML = `Majority chose <strong class="text-emerald-400">PLAN ${radPlan} (${c.radTitle})</strong>! Prioritizing profound <strong>Neurological / Swallowing sparing &amp; HI</strong> over minor CI differences.`;
+                } else if (isVmatWinner) {
+                    banner.className = "block shrink-0 mt-2.5 bg-blue-950/95 border-2 border-blue-500/50 rounded-2xl p-3 md:p-3.5 transition-all duration-500 shadow-lg";
+                    bTitle.className = "text-base md:text-xl font-black text-blue-300 leading-tight"; bTitle.innerText = "🛡️ Clinical Intuition Trade-off: VMAT Wins!";
+                    bDesc.innerHTML = `Majority chose <strong class="text-blue-400">PLAN ${vmatPlan} (${c.vmatTitle})</strong>! A conservative choice favoring slightly tighter CI over aggressive OAR dose reduction.`;
+                } else {
+                    banner.className = "block shrink-0 mt-2.5 bg-amber-950/95 border-2 border-amber-500/50 rounded-2xl p-3 md:p-3.5 transition-all duration-500 shadow-lg";
+                    bTitle.className = "text-base md:text-xl font-black text-amber-300 leading-tight"; bTitle.innerText = "⚖️ Clinical Trade-off: A 50/50 Tie!";
+                    bDesc.innerHTML = `An exact split! Highlighting the classic dilemma between <strong>Target Conformity (VMAT)</strong> and <strong>Profound Organ Sparing (RAD)</strong>.`;
+                }
+
+                // 開票瞬間再次確保 OAR 長圖已掛載並動態重算左側高度，確保底部結論框 100% 不被切掉
+                this.ensureOarImageLoaded(true);
+                document.getElementById('oar-flip-container').classList.add('flip-reveal');
+                this.autoFitScreenLayout();
+                requestAnimationFrame(() => this.autoFitScreenLayout());
+                setTimeout(() => this.autoFitScreenLayout(), 120);
+            },
+
+            localToggleHandoutMode(forceActive) {
+                const active = forceActive;
+                const btn = document.getElementById('btn-remote-handout');
+
+                btn.innerHTML = active ? '🔙 返回盲測與大圖模式' : '🎁 切換 Digital Handout 模式';
+                btn.className = active 
+                    ? "w-full bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1"
+                    : "w-full bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1";
+
+                document.getElementById('mobile-stage-voting').classList.toggle('hidden', active);
+                document.getElementById('mobile-stage-handout').classList.toggle('hidden', !active);
+                document.getElementById('mobile-stage-handout').classList.toggle('flex', active);
+
+                document.getElementById('screen-header-normal').classList.toggle('hidden', active);
+                document.getElementById('screen-header-handout').classList.toggle('hidden', !active);
+                document.getElementById('screen-body-normal').classList.toggle('hidden', active);
+                document.getElementById('screen-body-handout').classList.toggle('hidden', !active);
+                document.getElementById('screen-body-handout').classList.toggle('flex', active);
+            },
+
+            localResetSystem() {
+                this.localToggleHandoutMode(false);
+                this.localUpdateStageChart();
+
+                ['bar-1', 'bar-2'].forEach(id => {
+                    const el = document.getElementById(id);
+                    el.className = "w-full rounded-t-xl bar-transition bg-gradient-to-t from-slate-700 to-slate-500";
+                });
+
+                const bar1Plan = this.cfg.swapBarsOnScreen ? 'B' : 'A';
+                const bar2Plan = this.cfg.swapBarsOnScreen ? 'A' : 'B';
+                document.getElementById('label-1').innerHTML = `<span class="text-lg md:text-2xl font-black text-white block leading-tight">PLAN ${bar1Plan}</span><span class="text-xs md:text-sm font-bold text-slate-400 block mt-1">Blind Locked 🔒</span>`;
+                document.getElementById('label-2').innerHTML = `<span class="text-lg md:text-2xl font-black text-white block leading-tight">PLAN ${bar2Plan}</span><span class="text-xs md:text-sm font-bold text-slate-400 block mt-1">Blind Locked 🔒</span>`;
+
+                document.getElementById('reveal-banner').className = "hidden shrink-0 mt-2.5 bg-emerald-950/95 border-2 border-emerald-500/50 rounded-2xl p-3 md:p-3.5 transition-all duration-500";
+                document.getElementById('oar-flip-container').classList.remove('flip-reveal');
+                document.getElementById('image-lightbox').className = 'hidden';
+
+                this.resetZoom();
+                this.setHUDVisibility(false);
+                this.renderSelectionUI();
+                this.autoFitScreenLayout();
+                requestAnimationFrame(() => this.autoFitScreenLayout());
+            },
+
+            /* --- 輔助介面操作 (純本地) --- */
+            updateMobileViewportHeight() {
+                const vh = (window.visualViewport && window.visualViewport.height) ? window.visualViewport.height : window.innerHeight;
+                if (vh && vh > 100) {
+                    document.documentElement.style.setProperty('--app-dvh', `${vh}px`);
+                }
+            },
+            syncSlice(val) {
+                document.getElementById('slice-num').innerText = val;
+                document.getElementById('slice-slider').value = val;
+                if (APP_CONFIG.USE_REAL_IMAGES) {
+                    if (this.state.preloadedImages.A[val]) document.getElementById('img-plan-a').src = this.state.preloadedImages.A[val].src;
+                    if (this.state.preloadedImages.B[val]) document.getElementById('img-plan-b').src = this.state.preloadedImages.B[val].src;
+                }
+            },
+            updateZoomReadout() {
+                const readout = document.getElementById('zoom-readout-btn');
+                if (!readout) return;
+                const pct = Math.round(this.state.zoomScale * 100);
+                const isModified = this.state.zoomScale > 1.02 || Math.hypot(this.state.panX, this.state.panY) > 2;
+                readout.innerHTML = isModified ? `${pct}%<br><span class="text-[7px] text-amber-300">↺</span>` : `1x`;
+            },
+            syncZoom(val) {
+                const z = Math.max(1, Math.min(3.5, parseFloat(val) || 1));
+                this.state.zoomScale = z;
+                this.clampPan();
+                const slider = document.getElementById('zoom-slider');
+                if (slider && parseFloat(slider.value) !== z) slider.value = z;
+                this.updateZoomReadout();
+                this.applyZoomPanTransform();
+            },
+            stepZoom(delta) {
+                const next = Math.round((this.state.zoomScale + delta) * 20) / 20;
+                this.syncZoom(next);
+            },
+            resetZoom() {
+                this.state.panX = 0;
+                this.state.panY = 0;
+                this.syncZoom(1);
+            },
+            clampPan() {
+                const vp = document.querySelector('.plan-img-viewport');
+                if (!vp) return;
+                const baseW = vp.clientWidth || 300;
+                const baseH = vp.clientHeight || 160;
+                // 即使在 100% (zoomScale = 1) 初始狀態下，也允許上下左右自由平移 45% 的視窗範圍；放大後隨倍率增加平移範圍
+                const maxPanX = baseW * (0.45 + (this.state.zoomScale - 1) * 0.5);
+                const maxPanY = baseH * (0.45 + (this.state.zoomScale - 1) * 0.5);
+                this.state.panX = Math.max(-maxPanX, Math.min(maxPanX, this.state.panX));
+                this.state.panY = Math.max(-maxPanY, Math.min(maxPanY, this.state.panY));
+            },
+            applyZoomPanTransform() {
+                const t = `translate3d(${this.state.panX.toFixed(1)}px, ${this.state.panY.toFixed(1)}px, 0) scale(${this.state.zoomScale.toFixed(3)})`;
+                ['img-plan-a', 'img-plan-b'].forEach(id => {
+                    const img = document.getElementById(id);
+                    if (img) img.style.transform = t;
+                });
+                this.updateZoomReadout();
+            },
+            initSyncPanAndPinch() {
+                const viewports = document.querySelectorAll('.plan-img-viewport');
+                let isDragging = false;
+                let startX = 0, startY = 0;
+                let origPanX = 0, origPanY = 0;
+                let movedDist = 0;
+                let initialPinchDist = null;
+                let initialPinchZoom = 1;
+
+                const getTouchDist = (touches) => {
+                    const dx = touches[0].clientX - touches[1].clientX;
+                    const dy = touches[0].clientY - touches[1].clientY;
+                    return Math.hypot(dx, dy);
+                };
+
+                viewports.forEach(vp => {
+                    // 滑鼠拖曳同步平移 (100% 原始大小即可直接拖曳)
+                    vp.addEventListener('mousedown', (e) => {
+                        if (e.button !== 0) return;
+                        isDragging = true;
+                        movedDist = 0;
+                        startX = e.clientX;
+                        startY = e.clientY;
+                        origPanX = this.state.panX;
+                        origPanY = this.state.panY;
+                    });
+
+                    // 手機單指拖曳同步平移 (100% 即可平移) & 雙指捏合同步縮放
+                    vp.addEventListener('touchstart', (e) => {
+                        if (e.touches.length === 2) {
+                            isDragging = false;
+                            initialPinchDist = getTouchDist(e.touches);
+                            initialPinchZoom = this.state.zoomScale;
+                            this.state.justPanned = true;
+                        } else if (e.touches.length === 1) {
+                            isDragging = true;
+                            movedDist = 0;
+                            startX = e.touches[0].clientX;
+                            startY = e.touches[0].clientY;
+                            origPanX = this.state.panX;
+                            origPanY = this.state.panY;
+                        }
+                    }, { passive: true });
+
+                    vp.addEventListener('touchmove', (e) => {
+                        if (e.touches.length === 2 && initialPinchDist) {
+                            e.preventDefault();
+                            const dist = getTouchDist(e.touches);
+                            const newZ = initialPinchZoom * (dist / initialPinchDist);
+                            this.syncZoom(newZ);
+                            this.state.justPanned = true;
+                        } else if (e.touches.length === 1 && isDragging) {
+                            const dx = e.touches[0].clientX - startX;
+                            const dy = e.touches[0].clientY - startY;
+                            movedDist = Math.hypot(dx, dy);
+                            if (movedDist > 5) {
+                                e.preventDefault();
+                                this.state.justPanned = true;
+                                this.state.panX = origPanX + dx;
+                                this.state.panY = origPanY + dy;
+                                this.clampPan();
+                                this.applyZoomPanTransform();
+                            }
+                        }
+                    }, { passive: false });
+
+                    vp.addEventListener('touchend', () => {
+                        isDragging = false;
+                        initialPinchDist = null;
+                        setTimeout(() => { this.state.justPanned = false; }, 60);
+                    });
+
+                    // 滑鼠滾輪同步縮放
+                    vp.addEventListener('wheel', (e) => {
+                        e.preventDefault();
+                        const delta = e.deltaY < 0 ? 0.15 : -0.15;
+                        this.stepZoom(delta);
+                    }, { passive: false });
+                });
+
+                window.addEventListener('mousemove', (e) => {
+                    if (!isDragging) return;
+                    const dx = e.clientX - startX;
+                    const dy = e.clientY - startY;
+                    movedDist = Math.hypot(dx, dy);
+                    if (movedDist > 5) {
+                        this.state.justPanned = true;
+                        this.state.panX = origPanX + dx;
+                        this.state.panY = origPanY + dy;
+                        this.clampPan();
+                        this.applyZoomPanTransform();
+                    }
+                });
+
+                window.addEventListener('mouseup', () => {
+                    if (isDragging) {
+                        isDragging = false;
+                        setTimeout(() => { this.state.justPanned = false; }, 60);
+                    }
+                });
+            },
+            handleCardClick(plan, ev) {
+                if (this.state.justPanned) {
+                    this.state.justPanned = false;
+                    return;
+                }
+                this.selectPlan(plan);
+            },
+            jumpToOrgan(organ) { const t = this.cfg.keySlices[organ]; if (t) this.syncSlice(t); },
+            autoFitHudPanels() {
+                if (!this.state.hudVisible) return;
+                document.querySelectorAll('.hud-panel').forEach(panel => {
+                    if (panel.style.display === 'none') return;
+                    const inner = panel.querySelector('.hud-inner');
+                    if (!inner) return;
+                    inner.style.zoom = '1';
+                    inner.style.transform = 'none';
+                    inner.style.width = '100%';
+
+                    // 檢查每個欄位是否有任何文字超出格寬 (處理手機系統特大字體或極窄螢幕)
+                    const cells = inner.querySelectorAll('.hud-cell');
+                    let maxOverflowRatio = 1;
+                    cells.forEach(cell => {
+                        if (cell.clientWidth > 0 && cell.scrollWidth > cell.clientWidth + 1) {
+                            const r = cell.scrollWidth / cell.clientWidth;
+                            if (r > maxOverflowRatio) maxOverflowRatio = r;
+                        }
+                    });
+                    if (panel.clientWidth > 0 && inner.scrollWidth > panel.clientWidth + 2) {
+                        const r = inner.scrollWidth / (panel.clientWidth - 4);
+                        if (r > maxOverflowRatio) maxOverflowRatio = r;
+                    }
+                    if (maxOverflowRatio > 1.01) {
+                        const scale = Math.max(0.65, Math.min(1, 0.98 / maxOverflowRatio));
+                        inner.style.zoom = scale.toFixed(3);
+                    }
+                });
+            },
+            setHUDVisibility(visible) {
+                this.state.hudVisible = !!visible;
+                document.querySelectorAll('.hud-panel').forEach(el => {
+                    el.style.display = this.state.hudVisible ? 'flex' : 'none';
+                });
+                const btn = document.getElementById('btn-toggle-hud');
+                if (btn) {
+                    btn.innerText = this.state.hudVisible ? '📊 隱藏數據' : '📊 顯示數據';
+                    btn.className = this.state.hudVisible
+                        ? "bg-slate-800 hover:bg-slate-700 text-cyan-400 text-[10px] px-2 py-1 rounded border border-cyan-500/30 font-semibold shrink-0"
+                        : "bg-emerald-800/80 hover:bg-emerald-700 text-emerald-200 text-[10px] px-2 py-1 rounded border border-emerald-500/50 font-semibold shrink-0";
+                }
+                if (this.state.hudVisible) {
+                    this.autoFitHudPanels();
+                    requestAnimationFrame(() => this.autoFitHudPanels());
+                }
+            },
+            toggleHUD() {
+                this.setHUDVisibility(!this.state.hudVisible);
+            },
+            toggleOrientation() {
+                this.state.isPortrait = !this.state.isPortrait;
+                const p = this.state.isPortrait;
+                document.getElementById('panel-mobile').className = p
+                    ? "phone-portrait bg-slate-950 border-[6px] border-slate-800 rounded-[2.2rem] p-2.5 flex flex-col justify-between relative shadow-2xl transition-all duration-300 shrink-0 overflow-hidden"
+                    : "phone-landscape bg-slate-950 border-[6px] border-slate-800 rounded-[2.2rem] p-2.5 flex flex-col justify-between relative shadow-2xl transition-all duration-300 shrink-0 overflow-hidden";
+                document.getElementById('plans-wrapper').className = p
+                    ? "flex-1 min-w-0 min-h-0 flex flex-col gap-1 overflow-hidden"
+                    : "flex-1 min-w-0 min-h-0 flex flex-row gap-1.5 overflow-hidden";
+                requestAnimationFrame(() => {
+                    this.clampPan();
+                    this.applyZoomPanTransform();
+                    this.autoFitHudPanels();
+                });
+            },
+            selectPlan(plan) {
+                if (this.state.voteLocked) return;
+                document.getElementById('toast-warning').classList.add('hidden');
+                if (this.state.selectedPlan === plan) { this.state.selectedPlan = null; this.renderSelectionUI(); return; }
+                this.state.selectedPlan = plan; this.renderSelectionUI();
+            },
+            renderSelectionUI() {
+                const s = this.state.selectedPlan;
+                const cardA = document.getElementById('card-plan-a');
+                const cardB = document.getElementById('card-plan-b');
+                const badgeA = document.getElementById('badge-select-a');
+                const badgeB = document.getElementById('badge-select-b');
+                const btn = document.getElementById('btn-submit-vote');
+                if (!s) {
+                    cardA.className = "flex-1 min-h-0 bg-slate-900 rounded-xl border-2 border-slate-800 relative overflow-hidden flex flex-col justify-between cursor-pointer transition-colors";
+                    cardB.className = "flex-1 min-h-0 bg-slate-900 rounded-xl border-2 border-slate-800 relative overflow-hidden flex flex-col justify-between cursor-pointer transition-colors";
+                    badgeA.className = "text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-semibold"; badgeA.innerText = "點擊選擇";
+                    badgeB.className = "text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-semibold"; badgeB.innerText = "點擊選擇";
+                    btn.className = "w-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold py-2 rounded-xl text-xs transition-all shadow-lg cursor-pointer";
+                    btn.style.background = "";
+                    btn.style.color = "";
+                    btn.innerText = "確認送出投票 (請先選擇上方計畫)";
+                    return;
+                }
+                cardA.className = s === 'A'
+                    ? "flex-1 min-h-0 bg-slate-900 rounded-xl border-2 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)] relative overflow-hidden flex flex-col justify-between cursor-pointer transition-colors"
+                    : "flex-1 min-h-0 bg-slate-900 rounded-xl border-2 border-slate-800 opacity-65 relative overflow-hidden flex flex-col justify-between cursor-pointer transition-colors";
+                cardB.className = s === 'B'
+                    ? "flex-1 min-h-0 bg-slate-900 rounded-xl border-2 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)] relative overflow-hidden flex flex-col justify-between cursor-pointer transition-colors"
+                    : "flex-1 min-h-0 bg-slate-900 rounded-xl border-2 border-slate-800 opacity-65 relative overflow-hidden flex flex-col justify-between cursor-pointer transition-colors";
+                badgeA.className = s === 'A' ? "text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded font-bold" : "text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-semibold"; badgeA.innerText = s === 'A' ? "✓ 已預選" : "點擊選擇";
+                badgeB.className = s === 'B' ? "text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded font-bold" : "text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-semibold"; badgeB.innerText = s === 'B' ? "✓ 已預選" : "點擊選擇";
+                btn.className = "w-full font-black py-2 rounded-xl text-xs transition-all shadow-lg cursor-pointer border border-orange-300";
+                btn.style.background = "linear-gradient(90deg, #f97316 0%, #f59e0b 100%)";
+                btn.style.color = "#090d16";
+                btn.innerText = `🚀 確認送出：PLAN ${s}`;
+            },
+                        toggleLightbox() {
+                const lb = document.getElementById('image-lightbox');
+                if (lb.classList.contains('hidden') && this.state.status === 'revealed') {
+                    document.getElementById('lightbox-img').src = document.getElementById('oar-goals-img').src;
+                    lb.classList.remove('hidden'); lb.classList.add('lightbox-active');
+                } else { lb.classList.add('hidden'); lb.classList.remove('lightbox-active'); }
+            }
+        };
+    </script>
+</body>
+</html>
